@@ -5,36 +5,38 @@ const features = [
   {
     icon: Flame,
     title: 'Venting without judgment',
-    description: 'Create space for honest expression, daily updates, and emotional check-ins.'
+    description: 'Share raw thoughts, daily wins, and honest updates without a filtered social feed.'
   },
   {
     icon: MessageSquareText,
-    title: 'Build community',
-    description: 'Follow people who understand your mood and join conversations that matter.'
+    title: 'Build real community',
+    description: 'Follow people who understand your mood and join meaningful conversations.'
   },
   {
     icon: ShieldCheck,
-    title: 'Safe and intentional',
-    description: 'Private auth flows and a lightweight backend keep the app fast and safe.'
+    title: 'Safe by default',
+    description: 'Firebase auth and Turso-backed data keep the app lightweight and secure.'
   }
 ];
 
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      <section className="mx-auto max-w-7xl px-4 pb-16 pt-10 sm:px-6 lg:px-8">
-        <nav className="flex items-center justify-between rounded-full border border-white/10 bg-white/5 px-4 py-3 backdrop-blur">
+      <section className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
+        <nav className="flex items-center justify-between rounded-full border border-white/10 bg-white/5 px-5 py-3 backdrop-blur-sm">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-lg font-bold">W</div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-lg font-bold">
+              W
+            </div>
             <div>
               <p className="text-lg font-semibold">WeLoveRanters</p>
             </div>
           </div>
 
-          <div className="hidden items-center gap-8 text-sm text-slate-300 md:flex">
+          <div className="hidden items-center gap-7 text-sm text-slate-300 md:flex">
             <Link href="#features" className="transition hover:text-white">Features</Link>
             <Link href="#community" className="transition hover:text-white">Community</Link>
-            <Link href="#auth" className="transition hover:text-white">Login</Link>
+            <Link href="/auth" className="transition hover:text-white">Login</Link>
           </div>
 
           <Link
@@ -45,9 +47,9 @@ export default function HomePage() {
           </Link>
         </nav>
 
-        <div className="grid items-center gap-12 pb-20 pt-20 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="grid items-center gap-12 pb-20 pt-20 lg:grid-cols-[1.15fr_0.85fr]">
           <div>
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-pink-500/40 bg-pink-500/10 px-3 py-1 text-sm text-pink-200">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-pink-500/30 bg-pink-500/10 px-3 py-1 text-sm text-pink-100">
               <Sparkles className="h-4 w-4" />
               A space for honest conversations
             </div>
@@ -55,20 +57,14 @@ export default function HomePage() {
               Share what you feel without filtering it.
             </h1>
             <p className="mt-6 max-w-xl text-lg text-slate-300">
-              WeLoveRanters is a community-driven social app where people vent, connect, support each other, and engage in thoughtful conversations about real life.
+              WeLoveRanters gives people a place to vent, connect, and feel seen without the pressure of perfect posting.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-4">
-              <Link
-                href="/feed"
-                className="rounded-full bg-white px-6 py-3 font-medium text-slate-900 transition hover:bg-slate-100"
-              >
+              <Link href="/feed" className="rounded-full bg-white px-6 py-3 font-medium text-slate-900 transition hover:bg-slate-100">
                 Start reading
               </Link>
-              <Link
-                href="/login"
-                className="rounded-full border border-white/20 bg-white/5 px-6 py-3 font-medium text-white transition hover:bg-white/10"
-              >
+              <Link href="/auth" className="rounded-full border border-white/20 bg-white/5 px-6 py-3 font-medium text-white transition hover:bg-white/10">
                 Join now
               </Link>
             </div>
@@ -89,9 +85,9 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-800 p-6 shadow-soft">
+          <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-slate-900 to-slate-800 p-6 shadow-2xl shadow-pink-500/10">
             <div className="mb-6 flex items-center justify-between">
-              <span className="rounded-full border border-pink-500/40 bg-pink-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-pink-200">
+              <span className="rounded-full border border-pink-500/30 bg-pink-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-pink-200">
                 Trending now
               </span>
               <span className="text-sm text-slate-400">Live</span>
@@ -120,7 +116,7 @@ export default function HomePage() {
       <section id="features" className="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:px-8">
         <div className="mb-12 text-center">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-pink-400">Why it works</p>
-          <h2 className="mt-3 text-3xl font-bold text-slate-900">Built for emotional honesty and connection</h2>
+          <h2 className="mt-3 text-3xl font-bold text-slate-900">Built for honesty, emotional clarity, and connection</h2>
         </div>
 
         <div className="grid gap-6 md:grid-cols-3">
@@ -143,7 +139,7 @@ export default function HomePage() {
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-pink-400">Community</p>
               <h2 className="mt-3 text-3xl font-bold">A social feed that feels human</h2>
               <p className="mt-4 max-w-lg text-slate-300">
-                The product is designed to feel familiar to social platforms while staying centered on mental clarity, emotional support, and meaningful sharing.
+                The experience is familiar like Twitter/X but intentionally designed around emotional support, honesty, and collective healing.
               </p>
             </div>
 
@@ -156,7 +152,7 @@ export default function HomePage() {
                 </div>
               </div>
               <p className="mt-5 text-slate-200">
-                "Some days are just loud. I’m grateful for the people who understand without needing a full explanation."
+                “Some days are loud. I’m grateful for the people who understand without needing a full explanation.”
               </p>
             </div>
           </div>
