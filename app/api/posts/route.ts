@@ -1,10 +1,18 @@
 import { NextResponse } from 'next/server';
 import { verifyIdToken } from '@/lib/firebase';
 
+const demoPosts: Array<{
+  id: string;
+  content: string;
+  createdAt: string;
+  userId?: string;
+}> = [];
+
 export async function GET() {
   return NextResponse.json({
     message: 'Posts endpoint ready.',
-    status: 'ok'
+    status: 'ok',
+    posts: demoPosts
   });
 }
 
@@ -19,28 +27,42 @@ export async function POST(request: Request) {
 
     const token = typeof body?.token === 'string' ? body.token : '';
 
-    if (token) {
-      const decoded = await verifyIdToken(token);
-      return NextResponse.json({
-        ok: true,
-        message: 'Rant created successfully.',
-        user: decoded.uid,
-        post: {
+    try {
+      if (token) {
+        const decoded = await verifyIdToken(token);
+
+        const post = {
           id: `rant_${Date.now()}`,
           content,
-          createdAt: new Date().toISOString()
-        }
-      });
+          createdAt: new Date().toISOString(),
+          userId: decoded.uid
+        };
+
+        demoPosts.unshift(post);
+
+        return NextResponse.json({
+          ok: true,
+          message: 'Rant created successfully.',
+          user: decoded.uid,
+          post
+        });
+      }
+    } catch (authError) {
+      // Fall back to demo mode when the token is absent or invalid.
     }
+
+    const post = {
+      id: `rant_${Date.now()}`,
+      content,
+      createdAt: new Date().toISOString()
+    };
+
+    demoPosts.unshift(post);
 
     return NextResponse.json({
       ok: true,
       message: 'Rant created successfully in demo mode.',
-      post: {
-        id: `rant_${Date.now()}`,
-        content,
-        createdAt: new Date().toISOString()
-      }
+      post
     });
   } catch (error) {
     return NextResponse.json({

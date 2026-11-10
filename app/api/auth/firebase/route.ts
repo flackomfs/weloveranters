@@ -6,7 +6,10 @@ export async function POST(request: Request) {
     const token = typeof body?.token === 'string' ? body.token : '';
 
     if (!token) {
-      return NextResponse.json({ ok: true, message: 'Firebase token not provided; accepted in demo mode.' });
+      return NextResponse.json({
+        ok: true,
+        message: 'Firebase token not provided; accepted in demo mode.'
+      });
     }
 
     return NextResponse.json({ ok: true, message: 'Firebase verification successful.' });
