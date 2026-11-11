@@ -42,12 +42,14 @@ function getBearerToken(request: Request) {
 
 async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewerId: string | null) {
   if (!tursoClient) return profile;
+
   const counts = await tursoClient.execute({
     sql: `SELECT
         (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers,
         (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following`,
     args: [profile.id, profile.id]
   });
+
   const isFollowing = viewerId && viewerId !== profile.id
     ? await tursoClient.execute({
         sql: 'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?',
@@ -64,35 +66,49 @@ async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewer
   };
 }
 
+function makeDefaultUsername(email: string | undefined, uid: string) {
+  const emailName = email?.split('@')[0] || 'user';
+  const base = emailName.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 11) || 'user';
+  const suffix = uid.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(-12) || 'account';
+  return `${base}_${suffix}`;
+}
+
 async function ensureProfile(uid: string, email?: string, displayName?: string, avatarUrl?: string) {
   if (!tursoClient) throw new Error('Profile storage is unavailable. Configure the Turso database environment variables.');
 
   const existing = await tursoClient.execute({
-    sql: 'SELECT id, username, display_name, avatar_url FROM users WHERE id = ?',
+    sql: 'SELECT id, username, display_name, avatar_url, email FROM users WHERE id = ?',
     args: [uid]
   });
   const current = existing.rows[0];
   const emailName = email?.split('@')[0] || 'user';
-  const usernameBase = emailName.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20) || 'user';
-  const defaultUsername = `${usernameBase}_${uid.slice(0, 6).toLowerCase()}`;
+  const defaultUsername = makeDefaultUsername(email, uid);
+  const safeEmail = email || '';
 
   if (current) {
-    if (!current.username || !current.display_name || (!current.avatar_url && avatarUrl)) {
-      await tursoClient.execute({
-        sql: `UPDATE users SET
-          username = COALESCE(username, ?),
-          display_name = COALESCE(display_name, ?),
-          avatar_url = COALESCE(avatar_url, ?),
-          email = COALESCE(email, ?)
-          WHERE id = ?`,
-        args: [defaultUsername, displayName || emailName, avatarUrl || '', email || '', uid]
-      });
-    }
+    await tursoClient.execute({
+      sql: `UPDATE users SET
+        username = CASE WHEN username IS NULL OR username = '' THEN ? ELSE username END,
+        display_name = CASE WHEN display_name IS NULL OR display_name = '' THEN ? ELSE display_name END,
+        avatar_url = CASE WHEN avatar_url IS NULL OR avatar_url = '' THEN ? ELSE avatar_url END,
+        email = CASE WHEN email IS NULL OR email = '' THEN ? ELSE email END
+        WHERE id = ?`,
+      args: [defaultUsername, displayName || emailName, avatarUrl || '', safeEmail, uid]
+    });
   } else {
+    const emailOwner = email
+      ? await tursoClient.execute({
+          sql: 'SELECT id FROM users WHERE email = ? LIMIT 1',
+          args: [email]
+        })
+      : null;
+
+    const insertEmail = emailOwner?.rows.length ? null : safeEmail;
+
     await tursoClient.execute({
       sql: `INSERT INTO users (id, email, display_name, username, avatar_url, social_links)
         VALUES (?, ?, ?, ?, ?, '{}')`,
-      args: [uid, email || '', displayName || emailName, defaultUsername, avatarUrl || '']
+      args: [uid, insertEmail, displayName || emailName, defaultUsername, avatarUrl || '']
     });
   }
 
@@ -102,6 +118,7 @@ async function ensureProfile(uid: string, email?: string, displayName?: string, 
       FROM users WHERE id = ?`,
     args: [uid]
   });
+
   return profile.rows[0] ? profileFromRow(profile.rows[0]) : null;
 }
 
@@ -119,6 +136,7 @@ function normalizeUrl(value: unknown, label: string) {
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     throw new Error(`${label} must start with https://.`);
   }
+
   return url.toString();
 }
 
@@ -168,7 +186,9 @@ export async function GET(request: Request) {
           FROM users WHERE username = ?`,
         args: [username.toLowerCase()]
       });
+
       if (!result.rows[0]) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
+
       const viewer = await authenticate(request).catch(() => null);
       return NextResponse.json({ profile: await addFollowState(profileFromRow(result.rows[0]), viewer?.uid || null) });
     }
@@ -180,7 +200,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ profile: profile ? await addFollowState(profile, user.uid) : null });
   } catch (error) {
     console.error('Unable to load profile:', error instanceof Error ? error.message : 'Unknown error');
-    return NextResponse.json({ error: getServerConfigMessage(error) || 'Unable to load profile.' }, { status: error instanceof Error && /not configured|Configure the/.test(error.message) ? 503 : 500 });
+    return NextResponse.json(
+      { error: getServerConfigMessage(error) || 'Unable to load profile.' },
+      { status: error instanceof Error && /not configured|Configure the/.test(error.message) ? 503 : 500 }
+    );
   }
 }
 
@@ -220,6 +243,7 @@ export async function PUT(request: Request) {
     }
 
     await ensureProfile(user.uid, user.email, user.name, user.picture);
+
     await tursoClient.execute({
       sql: `UPDATE users SET display_name = ?, username = ?, avatar_url = ?, bio = ?, social_links = ?
         WHERE id = ?`,
@@ -232,18 +256,27 @@ export async function PUT(request: Request) {
         FROM users WHERE id = ?`,
       args: [user.uid]
     });
+
     return NextResponse.json({ profile: await addFollowState(profileFromRow(result.rows[0]), user.uid) });
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
+
     if (message.includes('UNIQUE constraint failed: users.username')) {
       return NextResponse.json({ error: 'That username is already taken.' }, { status: 409 });
     }
+
+    if (message.startsWith('UNIQUE constraint failed: users.email') || message.includes('users.email')) {
+      return NextResponse.json({ error: 'This account is already registered.' }, { status: 409 });
+    }
+
     if (message.endsWith('URL is too long.') || message.includes('must be a complete URL') || message.includes('must start with https://') || message.includes('Photo must')) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
+
     if (message.includes('not configured') || message.includes('Configure the')) {
       return NextResponse.json({ error: getServerConfigMessage(error) }, { status: 503 });
     }
+
     console.error('Unable to update profile:', message || 'Unknown error');
     return NextResponse.json({ error: 'Unable to update profile.' }, { status: 500 });
   }
