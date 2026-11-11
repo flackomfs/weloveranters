@@ -42,10 +42,10 @@ export function TrendingNow() {
   }, []);
 
   return (
-    <aside className="w-full">
-      <div className="rounded-[28px] border border-violet-400/20 bg-slate-900/80 p-5 shadow-[0_0_30px_rgba(168,85,247,0.10)] backdrop-blur-xl">
-        <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-bold text-white">TRENDING NOW</h3>
+    <aside className="w-full min-w-0">
+      <div className="rounded-2xl border border-violet-400/20 bg-slate-900/80 p-4 shadow-[0_0_30px_rgba(168,85,247,0.10)] backdrop-blur-xl sm:rounded-[28px] sm:p-5">
+        <div className="mb-4 flex items-center justify-between sm:mb-5">
+          <h3 className="text-base font-bold text-white sm:text-lg">TRENDING NOW</h3>
           <Search className="h-4 w-4 text-violet-300" />
         </div>
 

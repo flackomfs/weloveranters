@@ -24,6 +24,8 @@ export async function initTursoSchema() {
           avatar_url TEXT,
           bio TEXT,
           social_links TEXT,
+          followers_override INTEGER,
+          following_override INTEGER,
           provider TEXT,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
@@ -59,12 +61,40 @@ export async function initTursoSchema() {
         );
       `);
 
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS user_settings (
+          user_id TEXT PRIMARY KEY,
+          theme_id TEXT NOT NULL DEFAULT 'violet-night',
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id TEXT PRIMARY KEY,
+          recipient_id TEXT NOT NULL,
+          actor_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          entity_id TEXT,
+          created_at TEXT NOT NULL,
+          read_at TEXT
+        );
+      `);
+
+      await tursoClient.execute('CREATE INDEX IF NOT EXISTS notifications_recipient_created_idx ON notifications (recipient_id, created_at);');
+
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_hashtags_created_at_idx ON post_hashtags (created_at);');
 
       const userColumns = await tursoClient.execute('PRAGMA table_info(users)');
       const existingColumns = new Set(userColumns.rows.map((row) => String(row.name)));
       if (!existingColumns.has('social_links')) {
         await tursoClient.execute('ALTER TABLE users ADD COLUMN social_links TEXT');
+      }
+      if (!existingColumns.has('followers_override')) {
+        await tursoClient.execute('ALTER TABLE users ADD COLUMN followers_override INTEGER');
+      }
+      if (!existingColumns.has('following_override')) {
+        await tursoClient.execute('ALTER TABLE users ADD COLUMN following_override INTEGER');
       }
     })().catch((error) => {
       schemaPromise = null;

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifyIdToken } from '@/lib/firebase';
+import { isAdminUid } from '@/lib/admin';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
 type SocialLinks = {
@@ -28,13 +29,39 @@ function profileFromRow(row: Record<string, unknown>) {
     avatarUrl: String(row.avatar_url || ''),
     bio: String(row.bio || ''),
     socialLinks: parseSocialLinks(row.social_links),
-    createdAt: String(row.created_at || '')
+    createdAt: String(row.created_at || ''),
+    followersOverride: row.followers_override == null ? null : Number(row.followers_override),
+    followingOverride: row.following_override == null ? null : Number(row.following_override)
   };
 }
 
 function getBearerToken(request: Request) {
   const authorization = request.headers.get('authorization') || '';
   return authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+}
+
+async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewerId: string | null) {
+  if (!tursoClient) return profile;
+  const counts = await tursoClient.execute({
+    sql: `SELECT
+        (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers,
+        (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following`,
+    args: [profile.id, profile.id]
+  });
+  const isFollowing = viewerId && viewerId !== profile.id
+    ? await tursoClient.execute({
+        sql: 'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?',
+        args: [viewerId, profile.id]
+      })
+    : null;
+
+  return {
+    ...profile,
+    followers: profile.followersOverride ?? Number(counts.rows[0]?.followers || 0),
+    following: profile.followingOverride ?? Number(counts.rows[0]?.following || 0),
+    isFollowing: Boolean(isFollowing?.rows[0]),
+    canManageStats: Boolean(viewerId && isAdminUid(viewerId))
+  };
 }
 
 async function ensureProfile(uid: string, email?: string, displayName?: string, avatarUrl?: string) {
@@ -70,7 +97,8 @@ async function ensureProfile(uid: string, email?: string, displayName?: string, 
   }
 
   const profile = await tursoClient.execute({
-    sql: `SELECT id, display_name, username, avatar_url, bio, social_links, created_at
+    sql: `SELECT id, display_name, username, avatar_url, bio, social_links, created_at,
+      followers_override, following_override
       FROM users WHERE id = ?`,
     args: [uid]
   });
@@ -94,6 +122,21 @@ function normalizeUrl(value: unknown, label: string) {
   return url.toString();
 }
 
+function normalizeAvatar(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  const avatar = value.trim();
+  if (avatar.length > 450_000) throw new Error('Photo must be smaller than 330 KB.');
+
+  if (avatar.startsWith('data:')) {
+    if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(avatar)) {
+      throw new Error('Photo must be a Base64 JPEG, PNG, or WebP image.');
+    }
+    return avatar;
+  }
+
+  return normalizeUrl(avatar, 'Photo');
+}
+
 async function authenticate(request: Request) {
   const token = getBearerToken(request);
   if (!token) return null;
@@ -111,19 +154,21 @@ export async function GET(request: Request) {
 
     if (username) {
       const result = await tursoClient.execute({
-        sql: `SELECT id, display_name, username, avatar_url, bio, social_links, created_at
+        sql: `SELECT id, display_name, username, avatar_url, bio, social_links, created_at,
+            followers_override, following_override
           FROM users WHERE username = ?`,
         args: [username.toLowerCase()]
       });
       if (!result.rows[0]) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
-      return NextResponse.json({ profile: profileFromRow(result.rows[0]) });
+      const viewer = await authenticate(request).catch(() => null);
+      return NextResponse.json({ profile: await addFollowState(profileFromRow(result.rows[0]), viewer?.uid || null) });
     }
 
     const user = await authenticate(request);
     if (!user) return NextResponse.json({ error: 'Sign in to view your profile.' }, { status: 401 });
 
     const profile = await ensureProfile(user.uid, user.email, user.name, user.picture);
-    return NextResponse.json({ profile });
+    return NextResponse.json({ profile: profile ? await addFollowState(profile, user.uid) : null });
   } catch (error) {
     console.error('Unable to load profile:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json({ error: 'Unable to load profile.' }, { status: 500 });
@@ -144,7 +189,7 @@ export async function PUT(request: Request) {
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
     const bio = typeof body.bio === 'string' ? body.bio.trim() : '';
-    const avatarUrl = normalizeUrl(body.avatarUrl, 'Photo');
+    const avatarUrl = normalizeAvatar(body.avatarUrl);
     const socialInput = body.socialLinks && typeof body.socialLinks === 'object' ? body.socialLinks : {};
     const socialLinks: SocialLinks = {
       website: normalizeUrl(socialInput.website, 'Website'),
@@ -173,17 +218,18 @@ export async function PUT(request: Request) {
     });
 
     const result = await tursoClient.execute({
-      sql: `SELECT id, display_name, username, avatar_url, bio, social_links, created_at
+      sql: `SELECT id, display_name, username, avatar_url, bio, social_links, created_at,
+          followers_override, following_override
         FROM users WHERE id = ?`,
       args: [user.uid]
     });
-    return NextResponse.json({ profile: profileFromRow(result.rows[0]) });
+    return NextResponse.json({ profile: await addFollowState(profileFromRow(result.rows[0]), user.uid) });
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     if (message.includes('UNIQUE constraint failed: users.username')) {
       return NextResponse.json({ error: 'That username is already taken.' }, { status: 409 });
     }
-    if (message.endsWith('URL is too long.') || message.includes('must be a complete URL') || message.includes('must start with https://')) {
+    if (message.endsWith('URL is too long.') || message.includes('must be a complete URL') || message.includes('must start with https://') || message.includes('Photo must')) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
     console.error('Unable to update profile:', message || 'Unknown error');

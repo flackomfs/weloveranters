@@ -36,6 +36,7 @@ NEXT_PUBLIC_FIREBASE_APP_ID=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_KEY_HERE\n-----END PRIVATE KEY-----\n"
+ADMIN_UIDS=your_firebase_uid,another_firebase_uid
 
 # Turso
 TURSO_DATABASE_URL=
@@ -48,6 +49,7 @@ NEXT_PUBLIC_APP_URL=https://your-domain.vercel.app
 Notes:
 - `NEXT_PUBLIC_*` values are used by the browser-side Firebase SDK.
 - `FIREBASE_PRIVATE_KEY` is used by the server-side admin SDK and should contain the private key from your Firebase service account JSON. Keep it quoted in Vercel and preserve the newline escapes.
+- `ADMIN_UIDS` is a comma- or whitespace-separated list of Firebase Authentication UIDs allowed to override displayed follower and following counts on profiles. Keep this server-only; it must not use a `NEXT_PUBLIC_` prefix.
 - `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` come from your Turso database setup.
 - No Firebase Analytics or messaging variables are required for this app.
 

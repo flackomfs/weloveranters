@@ -34,6 +34,9 @@ export async function GET(request: Request) {
 
     const posts = result.rows.map((row) => ({
       ...row,
+      avatarUrl: String(row.avatarUrl || '').startsWith('data:image/')
+        ? `/api/profile/photo?uid=${encodeURIComponent(String(row.userId))}`
+        : row.avatarUrl,
       tags: (String(row.content).match(/#[a-zA-Z0-9_]+/g) || []).map((tag) => tag.slice(1).toLowerCase())
     }));
 
@@ -98,6 +101,17 @@ export async function POST(request: Request) {
       await tursoClient.execute({
         sql: 'INSERT INTO post_hashtags (hashtag, post_id, created_at) VALUES (?, ?, ?)',
         args: [hashtag, id, createdAt]
+      });
+    }
+
+    const followers = await tursoClient.execute({
+      sql: 'SELECT follower_id FROM follows WHERE following_id = ?',
+      args: [user.uid]
+    });
+    for (const follower of followers.rows) {
+      await tursoClient.execute({
+        sql: 'INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        args: [`post_${crypto.randomUUID()}`, String(follower.follower_id), user.uid, 'post', id, createdAt]
       });
     }
 
