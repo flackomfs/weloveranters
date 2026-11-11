@@ -1,115 +1,32 @@
-'use client';
-
-import Image from 'next/image';
-import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
-
-import { PostComposer } from '@/components/PostComposer';
-
-type FeedPost = {
-  id: string;
-  content: string;
-  createdAt: string;
-  likes: number;
-  comments: number;
-  reposts: number;
-  authorName: string | null;
-  authorUsername: string | null;
-  avatarUrl: string | null;
-  tags: string[];
-};
-
-export function Feed() {
-  const [posts, setPosts] = useState<FeedPost[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAvailable, setIsAvailable] = useState(true);
-  const [error, setError] = useState('');
-  const [query, setQuery] = useState('');
-
-  const loadPosts = useCallback(async () => {
-    try {
-      const response = await fetch('/api/posts', { cache: 'no-store' });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Unable to load posts.');
-      setPosts(data.posts);
-      setIsAvailable(data.available);
-      setError('');
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Unable to load posts.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadPosts();
-    const intervalId = window.setInterval(() => void loadPosts(), 3000);
-    return () => window.clearInterval(intervalId);
-  }, [loadPosts]);
-
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredPosts = posts.filter((post) =>
-    [post.content, post.authorName, post.authorUsername, ...post.tags]
-      .some((value) => value?.toLowerCase().includes(normalizedQuery))
-  );
-
-  return (
-    <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-soft sm:rounded-3xl sm:p-3">
-      <div className="mb-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2 sm:mb-3 sm:rounded-2xl sm:px-3 sm:py-2.5">
-        <span className="text-base text-slate-400">⌕</span>
-        <input
-          aria-label="Search"
-          placeholder="Search topics, people, or emotions"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          className="w-full border-0 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400 sm:text-sm"
-        />
-      </div>
-
-      <PostComposer onPosted={loadPosts} />
-
-      <div className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3">
-        {isLoading ? <p className="py-8 text-center text-sm text-slate-500">Loading posts...</p> : null}
-        {!isLoading && error ? <p role="alert" className="py-8 text-center text-sm text-rose-600">{error}</p> : null}
-        {!isLoading && !error && !isAvailable ? <p className="py-8 text-center text-sm text-slate-500">The feed is unavailable because database storage is not configured.</p> : null}
-        {!isLoading && !error && isAvailable && posts.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No rants yet. Be the first to share one.</p> : null}
-        {!isLoading && !error && posts.length > 0 && filteredPosts.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No rants match your search.</p> : null}
-        {filteredPosts.map((post) => (
-          <article key={post.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-2.5 sm:rounded-3xl sm:p-3">
-            <div className="flex items-start gap-2.5 sm:gap-3">
-              {post.avatarUrl ? (
-                <Image src={post.avatarUrl} alt="" width={40} height={40} unoptimized className="h-10 w-10 rounded-full object-cover sm:h-11 sm:w-11" />
-              ) : (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-xs font-bold text-white sm:h-11 sm:w-11">
-                  {(post.authorName || 'U').slice(0, 1).toUpperCase()}
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5 text-[11px] sm:gap-2 sm:text-xs">
-                  <p className="font-semibold text-slate-900">{post.authorName || 'Member'}</p>
-                  {post.authorUsername ? <Link href={`/profile/${encodeURIComponent(post.authorUsername)}`} className="text-slate-500 hover:text-violet-700">@{post.authorUsername}</Link> : null}
-                  <span className="text-slate-400">· {new Date(post.createdAt).toLocaleString()}</span>
-                </div>
-                <p className="mt-2 whitespace-pre-line text-sm leading-5 text-slate-700 sm:mt-2.5 sm:text-[14px] sm:leading-6">{post.content}</p>
-
-                <div className="mt-3 flex flex-wrap gap-1.5 sm:gap-2">
-                  {post.tags.map((tag) => (
-                    <span key={tag} className="rounded-full bg-pink-100 px-2 py-0.5 text-[10px] font-medium text-pink-700 sm:text-xs">
-                      #{tag}
-                    </span>
-                  ))}
-                </div>
-
-                <div className="mt-3 flex items-center gap-4 text-[11px] text-slate-500 sm:gap-5 sm:text-sm">
-                  <span>❤️ {post.likes}</span>
-                  <span>💬 {post.comments}</span>
-                  <span>↻ {post.reposts}</span>
-                </div>
-              </div>
-            </div>
-          </article>
-        ))}
-      </div>
-    </div>
-  );
+{
+  "name": "weloveranters",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.15.15",
+    "drizzle-orm": "^0.30.0",
+    "firebase": "^10.12.2",
+    "firebase-admin": "^12.4.0",
+    "lucide-react": "^0.453.0",
+    "next": "14.2.15",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.12",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.15",
+    "postcss": "^8.4.41",
+    "tailwindcss": "^3.4.10",
+    "typescript": "^5.5.4"
+  }
 }
