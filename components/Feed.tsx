@@ -68,39 +68,39 @@ export function Feed() {
 
       <PostComposer onPosted={loadPosts} />
 
-      <div className="mt-4 space-y-3 sm:mt-6 sm:space-y-4">
+      <div className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3">
         {isLoading ? <p className="py-8 text-center text-sm text-slate-500">Loading posts...</p> : null}
         {!isLoading && error ? <p role="alert" className="py-8 text-center text-sm text-rose-600">{error}</p> : null}
         {!isLoading && !error && !isAvailable ? <p className="py-8 text-center text-sm text-slate-500">The feed is unavailable because database storage is not configured.</p> : null}
         {!isLoading && !error && isAvailable && posts.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No rants yet. Be the first to share one.</p> : null}
         {!isLoading && !error && posts.length > 0 && filteredPosts.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No rants match your search.</p> : null}
         {filteredPosts.map((post) => (
-          <article key={post.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:rounded-3xl sm:p-4">
-            <div className="flex items-start gap-3">
+          <article key={post.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-2.5 sm:rounded-3xl sm:p-3">
+            <div className="flex items-start gap-2.5 sm:gap-3">
               {post.avatarUrl ? (
-                <Image src={post.avatarUrl} alt="" width={44} height={44} unoptimized className="h-11 w-11 rounded-full object-cover" />
+                <Image src={post.avatarUrl} alt="" width={40} height={40} unoptimized className="h-10 w-10 rounded-full object-cover sm:h-11 sm:w-11" />
               ) : (
-                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-sm font-bold text-white">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-xs font-bold text-white sm:h-11 sm:w-11">
                   {(post.authorName || 'U').slice(0, 1).toUpperCase()}
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs sm:gap-2">
                   <p className="font-semibold text-slate-900">{post.authorName || 'Member'}</p>
-                  {post.authorUsername ? <Link href={`/profile/${encodeURIComponent(post.authorUsername)}`} className="text-sm text-slate-500 hover:text-violet-700">@{post.authorUsername}</Link> : null}
-                  <span className="text-sm text-slate-400">· {new Date(post.createdAt).toLocaleString()}</span>
+                  {post.authorUsername ? <Link href={`/profile/${encodeURIComponent(post.authorUsername)}`} className="text-slate-500 hover:text-violet-700">@{post.authorUsername}</Link> : null}
+                  <span className="text-slate-400">· {new Date(post.createdAt).toLocaleString()}</span>
                 </div>
-                <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700 sm:mt-3 sm:text-[15px] sm:leading-7">{post.content}</p>
+                <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700 sm:mt-2.5 sm:text-[14px] sm:leading-6">{post.content}</p>
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-1.5 sm:gap-2">
                   {post.tags.map((tag) => (
-                    <span key={tag} className="rounded-full bg-pink-100 px-2.5 py-1 text-xs font-medium text-pink-700">
+                    <span key={tag} className="rounded-full bg-pink-100 px-2 py-0.5 text-[10px] font-medium text-pink-700 sm:text-xs">
                       #{tag}
                     </span>
                   ))}
                 </div>
 
-                <div className="mt-4 flex items-center gap-6 text-sm text-slate-500">
+                <div className="mt-3 flex items-center gap-4 text-xs text-slate-500 sm:gap-5 sm:text-sm">
                   <span>❤️ {post.likes}</span>
                   <span>💬 {post.comments}</span>
                   <span>↻ {post.reposts}</span>
