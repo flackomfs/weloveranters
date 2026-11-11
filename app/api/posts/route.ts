@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifyIdToken } from '@/lib/firebase';
+import { initTursoSchema, tursoClient } from '@/lib/turso';
 
 const demoPosts: Array<{
   id: string;
@@ -9,11 +10,20 @@ const demoPosts: Array<{
 }> = [];
 
 export async function GET() {
-  return NextResponse.json({
-    message: 'Posts endpoint ready.',
-    status: 'ok',
-    posts: demoPosts
-  });
+  if (tursoClient) {
+    try {
+      await initTursoSchema();
+      const result = await tursoClient.execute(
+        'SELECT id, content, created_at AS createdAt, user_id AS userId FROM posts ORDER BY created_at DESC LIMIT 100'
+      );
+
+      return NextResponse.json({ message: 'Posts loaded.', status: 'ok', posts: result.rows });
+    } catch (error) {
+      return NextResponse.json({ error: 'Unable to load posts.' }, { status: 500 });
+    }
+  }
+
+  return NextResponse.json({ message: 'Posts endpoint ready.', status: 'ok', posts: demoPosts });
 }
 
 export async function POST(request: Request) {
@@ -30,13 +40,48 @@ export async function POST(request: Request) {
     try {
       if (token) {
         const decoded = await verifyIdToken(token);
-
         const post = {
           id: `rant_${Date.now()}`,
           content,
           createdAt: new Date().toISOString(),
           userId: decoded.uid
         };
+
+        if (tursoClient) {
+          await initTursoSchema();
+          await tursoClient.execute({
+            sql: 'INSERT INTO users (id) VALUES (?) ON CONFLICT(id) DO NOTHING',
+            args: [decoded.uid]
+          });
+          await tursoClient.execute({
+            sql: 'INSERT INTO posts (id, user_id, content, created_at) VALUES (?, ?, ?, ?)',
+            args: [post.id, post.userId, post.content, post.createdAt]
+          });
+
+          const hashtagMatches: string[] = content.match(/#[a-zA-Z0-9_]+/g) || [];
+          const hashtags: string[] = [];
+
+          for (const hashtagMatch of hashtagMatches) {
+            const hashtag = hashtagMatch.slice(1).toLowerCase();
+            if (!hashtags.includes(hashtag)) hashtags.push(hashtag);
+          }
+
+          if (hashtags.length > 0) {
+            for (const hashtag of hashtags) {
+              await tursoClient.execute({
+                sql: 'INSERT INTO post_hashtags (hashtag, post_id, created_at) VALUES (?, ?, ?)',
+                args: [hashtag, post.id, post.createdAt]
+              });
+            }
+          }
+
+          return NextResponse.json({
+            ok: true,
+            message: 'Rant created successfully.',
+            user: decoded.uid,
+            post
+          });
+        }
 
         demoPosts.unshift(post);
 
