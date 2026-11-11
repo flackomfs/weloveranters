@@ -35,7 +35,7 @@ NEXT_PUBLIC_FIREBASE_APP_ID=
 # Firebase server-side verification
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
-FIREBASE_PRIVATE_KEY=
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_KEY_HERE\n-----END PRIVATE KEY-----\n"
 
 # Turso
 TURSO_DATABASE_URL=
@@ -47,9 +47,9 @@ NEXT_PUBLIC_APP_URL=https://your-domain.vercel.app
 
 Notes:
 - `NEXT_PUBLIC_*` values are used by the browser-side Firebase SDK.
-- `FIREBASE_PRIVATE_KEY` is used by the server-side admin SDK and should contain the private key from your Firebase service account JSON.
+- `FIREBASE_PRIVATE_KEY` is used by the server-side admin SDK and should contain the private key from your Firebase service account JSON. Keep it quoted in Vercel and preserve the newline escapes.
 - `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` come from your Turso database setup.
-- `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` is not required for this app and was removed because the project is not using Firebase Analytics.
+- No Firebase Analytics or messaging variables are required for this app.
 
 ## Current pages
 - `/` landing page
