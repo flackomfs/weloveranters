@@ -65,7 +65,7 @@ async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewer
 }
 
 async function ensureProfile(uid: string, email?: string, displayName?: string, avatarUrl?: string) {
-  if (!tursoClient) throw new Error('Database is not configured.');
+  if (!tursoClient) throw new Error('Profile storage is unavailable. Configure the Turso database environment variables.');
 
   const existing = await tursoClient.execute({
     sql: 'SELECT id, username, display_name, avatar_url FROM users WHERE id = ?',
@@ -143,9 +143,18 @@ async function authenticate(request: Request) {
   return verifyIdToken(token);
 }
 
+function getServerConfigMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  if (!message) return 'Profile service is unavailable.';
+  if (message.includes('not configured') || message.includes('Configure the')) {
+    return 'Profile service is unavailable. Configure the Firebase and Turso environment variables.';
+  }
+  return message;
+}
+
 export async function GET(request: Request) {
   if (!tursoClient) {
-    return NextResponse.json({ error: 'Profile storage is unavailable.' }, { status: 503 });
+    return NextResponse.json({ error: 'Profile storage is unavailable. Configure the Turso database environment variables.' }, { status: 503 });
   }
 
   try {
@@ -171,13 +180,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ profile: profile ? await addFollowState(profile, user.uid) : null });
   } catch (error) {
     console.error('Unable to load profile:', error instanceof Error ? error.message : 'Unknown error');
-    return NextResponse.json({ error: 'Unable to load profile.' }, { status: 500 });
+    return NextResponse.json({ error: getServerConfigMessage(error) || 'Unable to load profile.' }, { status: error instanceof Error && /not configured|Configure the/.test(error.message) ? 503 : 500 });
   }
 }
 
 export async function PUT(request: Request) {
   if (!tursoClient) {
-    return NextResponse.json({ error: 'Profile storage is unavailable.' }, { status: 503 });
+    return NextResponse.json({ error: 'Profile storage is unavailable. Configure the Turso database environment variables.' }, { status: 503 });
   }
 
   try {
@@ -231,6 +240,9 @@ export async function PUT(request: Request) {
     }
     if (message.endsWith('URL is too long.') || message.includes('must be a complete URL') || message.includes('must start with https://') || message.includes('Photo must')) {
       return NextResponse.json({ error: message }, { status: 400 });
+    }
+    if (message.includes('not configured') || message.includes('Configure the')) {
+      return NextResponse.json({ error: getServerConfigMessage(error) }, { status: 503 });
     }
     console.error('Unable to update profile:', message || 'Unknown error');
     return NextResponse.json({ error: 'Unable to update profile.' }, { status: 500 });
