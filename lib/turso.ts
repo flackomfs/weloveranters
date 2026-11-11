@@ -1,108 +1,269 @@
-import { createClient } from '@libsql/client';
+import { NextResponse } from 'next/server';
+import { verifyIdToken } from '@/lib/firebase';
+import { isAdminUid } from '@/lib/admin';
+import { initTursoSchema, tursoClient } from '@/lib/turso';
 
-const databaseUrl = process.env.TURSO_DATABASE_URL;
-const authToken = process.env.TURSO_AUTH_TOKEN;
+type SocialLinks = {
+  website?: string;
+  instagram?: string;
+  tiktok?: string;
+  youtube?: string;
+  linkedin?: string;
+  x?: string;
+};
 
-export const tursoClient = databaseUrl && authToken ? createClient({ url: databaseUrl, authToken }) : null;
-export const isTursoConfigured = Boolean(tursoClient);
-
-let schemaPromise: Promise<void> | null = null;
-
-export async function initTursoSchema() {
-  if (!tursoClient) {
-    return null;
+function parseSocialLinks(value: unknown): SocialLinks {
+  if (typeof value !== 'string') return {};
+  try {
+    return JSON.parse(value) as SocialLinks;
+  } catch {
+    return {};
   }
+}
 
-  if (!schemaPromise) {
-    schemaPromise = (async () => {
-      await tursoClient.execute(`
-        CREATE TABLE IF NOT EXISTS users (
-          id TEXT PRIMARY KEY,
-          email TEXT UNIQUE,
-          display_name TEXT,
-          username TEXT UNIQUE,
-          avatar_url TEXT,
-          bio TEXT,
-          social_links TEXT,
-          followers_override INTEGER,
-          following_override INTEGER,
-          provider TEXT,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        );
-      `);
+function profileFromRow(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    name: String(row.display_name || 'New user'),
+    username: String(row.username || ''),
+    avatarUrl: String(row.avatar_url || ''),
+    bannerUrl: String(row.banner_url || ''),
+    bio: String(row.bio || ''),
+    socialLinks: parseSocialLinks(row.social_links),
+    createdAt: String(row.created_at || ''),
+    followersOverride: row.followers_override == null ? null : Number(row.followers_override),
+    followingOverride: row.following_override == null ? null : Number(row.following_override)
+  };
+}
 
-      await tursoClient.execute(`
-        CREATE TABLE IF NOT EXISTS posts (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          content TEXT NOT NULL,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          likes INTEGER DEFAULT 0,
-          comments INTEGER DEFAULT 0,
-          reposts INTEGER DEFAULT 0
-        );
-      `);
+function getBearerToken(request: Request) {
+  const authorization = request.headers.get('authorization') || '';
+  return authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+}
 
-      await tursoClient.execute(`
-        CREATE TABLE IF NOT EXISTS follows (
-          follower_id TEXT NOT NULL,
-          following_id TEXT NOT NULL,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          PRIMARY KEY (follower_id, following_id)
-        );
-      `);
+async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewerId: string | null) {
+  if (!tursoClient) return profile;
 
-      await tursoClient.execute(`
-        CREATE TABLE IF NOT EXISTS post_hashtags (
-          hashtag TEXT NOT NULL,
-          post_id TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          PRIMARY KEY (hashtag, post_id)
-        );
-      `);
+  const counts = await tursoClient.execute({
+    sql: `SELECT
+        (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers,
+        (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following`,
+    args: [profile.id, profile.id]
+  });
 
-      await tursoClient.execute(`
-        CREATE TABLE IF NOT EXISTS user_settings (
-          user_id TEXT PRIMARY KEY,
-          theme_id TEXT NOT NULL DEFAULT 'violet-night',
-          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-        );
-      `);
+  const isFollowing = viewerId && viewerId !== profile.id
+    ? await tursoClient.execute({
+        sql: 'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?',
+        args: [viewerId, profile.id]
+      })
+    : null;
 
-      await tursoClient.execute(`
-        CREATE TABLE IF NOT EXISTS notifications (
-          id TEXT PRIMARY KEY,
-          recipient_id TEXT NOT NULL,
-          actor_id TEXT NOT NULL,
-          type TEXT NOT NULL,
-          entity_id TEXT,
-          created_at TEXT NOT NULL,
-          read_at TEXT
-        );
-      `);
+  return {
+    ...profile,
+    followers: profile.followersOverride ?? Number(counts.rows[0]?.followers || 0),
+    following: profile.followingOverride ?? Number(counts.rows[0]?.following || 0),
+    isFollowing: Boolean(isFollowing?.rows[0]),
+    canManageStats: Boolean(viewerId && isAdminUid(viewerId))
+  };
+}
 
-      await tursoClient.execute('CREATE INDEX IF NOT EXISTS notifications_recipient_created_idx ON notifications (recipient_id, created_at);');
+function makeDefaultUsername(email: string | undefined, uid: string) {
+  const emailName = email?.split('@')[0] || 'user';
+  const base = emailName.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 11) || 'user';
+  const suffix = uid.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(-12) || 'account';
+  return `${base}_${suffix}`;
+}
 
-      await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_hashtags_created_at_idx ON post_hashtags (created_at);');
+async function ensureProfile(uid: string, email?: string, displayName?: string, avatarUrl?: string, bannerUrl?: string) {
+  if (!tursoClient) throw new Error('Database is not configured.');
 
-      const userColumns = await tursoClient.execute('PRAGMA table_info(users)');
-      const existingColumns = new Set(userColumns.rows.map((row) => String(row.name)));
-      if (!existingColumns.has('social_links')) {
-        await tursoClient.execute('ALTER TABLE users ADD COLUMN social_links TEXT');
-      }
-      if (!existingColumns.has('followers_override')) {
-        await tursoClient.execute('ALTER TABLE users ADD COLUMN followers_override INTEGER');
-      }
-      if (!existingColumns.has('following_override')) {
-        await tursoClient.execute('ALTER TABLE users ADD COLUMN following_override INTEGER');
-      }
-    })().catch((error) => {
-      schemaPromise = null;
-      throw error;
+  const existing = await tursoClient.execute({
+    sql: 'SELECT id, username, display_name, avatar_url, banner_url, email FROM users WHERE id = ?',
+    args: [uid]
+  });
+  const current = existing.rows[0];
+  const emailName = email?.split('@')[0] || 'user';
+  const defaultUsername = makeDefaultUsername(email, uid);
+  const safeEmail = email || '';
+
+  if (current) {
+    await tursoClient.execute({
+      sql: `UPDATE users SET
+        username = CASE WHEN username IS NULL OR username = '' THEN ? ELSE username END,
+        display_name = CASE WHEN display_name IS NULL OR display_name = '' THEN ? ELSE display_name END,
+        avatar_url = CASE WHEN avatar_url IS NULL OR avatar_url = '' THEN ? ELSE avatar_url END,
+        banner_url = CASE WHEN banner_url IS NULL OR banner_url = '' THEN ? ELSE banner_url END,
+        email = CASE WHEN email IS NULL OR email = '' THEN ? ELSE email END
+        WHERE id = ?`,
+      args: [defaultUsername, displayName || emailName, avatarUrl || '', bannerUrl || '', safeEmail, uid]
+    });
+  } else {
+    const emailOwner = email
+      ? await tursoClient.execute({
+          sql: 'SELECT id FROM users WHERE email = ? LIMIT 1',
+          args: [email]
+        })
+      : null;
+
+    const insertEmail = emailOwner?.rows.length ? null : safeEmail;
+
+    await tursoClient.execute({
+      sql: `INSERT INTO users (id, email, display_name, username, avatar_url, banner_url, social_links)
+        VALUES (?, ?, ?, ?, ?, ?, '{}')`,
+      args: [uid, insertEmail, displayName || emailName, defaultUsername, avatarUrl || '', bannerUrl || '']
     });
   }
 
-  await schemaPromise;
+  const profile = await tursoClient.execute({
+    sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
+      followers_override, following_override
+      FROM users WHERE id = ?`,
+    args: [uid]
+  });
 
-  return tursoClient;
+  return profile.rows[0] ? profileFromRow(profile.rows[0]) : null;
+}
+
+function normalizeUrl(value: unknown, label: string) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  if (value.length > 2048) throw new Error(`${label} URL is too long.`);
+
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error(`${label} must be a complete URL starting with https://.`);
+  }
+
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error(`${label} must start with https://.`);
+  }
+
+  return url.toString();
+}
+
+function normalizeAvatar(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  const avatar = value.trim();
+  if (avatar.length > 450_000) throw new Error('Photo must be smaller than 330 KB.');
+
+  if (avatar.startsWith('data:')) {
+    if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(avatar)) {
+      throw new Error('Photo must be a Base64 JPEG, PNG, or WebP image.');
+    }
+    return avatar;
+  }
+
+  return normalizeUrl(avatar, 'Photo');
+}
+
+async function authenticate(request: Request) {
+  const token = getBearerToken(request);
+  if (!token) return null;
+  return verifyIdToken(token);
+}
+
+export async function GET(request: Request) {
+  if (!tursoClient) {
+    return NextResponse.json({ error: 'Profile storage is unavailable. Configure the Turso database environment variables.' }, { status: 503 });
+  }
+
+  try {
+    await initTursoSchema();
+    const username = new URL(request.url).searchParams.get('username');
+
+    if (username) {
+      const result = await tursoClient.execute({
+        sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
+            followers_override, following_override
+          FROM users WHERE username = ?`,
+        args: [username.toLowerCase()]
+      });
+
+      if (!result.rows[0]) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
+
+      const viewer = await authenticate(request).catch(() => null);
+      return NextResponse.json({ profile: await addFollowState(profileFromRow(result.rows[0]), viewer?.uid || null) });
+    }
+
+    const user = await authenticate(request);
+    if (!user) return NextResponse.json({ error: 'Sign in to view your profile.' }, { status: 401 });
+
+    const profile = await ensureProfile(user.uid, user.email, user.name, user.picture, user.picture);
+    return NextResponse.json({ profile: profile ? await addFollowState(profile, user.uid) : null });
+  } catch (error) {
+    console.error('Unable to load profile:', error instanceof Error ? error.message : 'Unknown error');
+    return NextResponse.json({ error: 'Unable to load profile.' }, { status: 500 });
+  }
+}
+
+export async function PUT(request: Request) {
+  if (!tursoClient) {
+    return NextResponse.json({ error: 'Profile storage is unavailable. Configure the Turso database environment variables.' }, { status: 503 });
+  }
+
+  try {
+    await initTursoSchema();
+    const user = await authenticate(request);
+    if (!user) return NextResponse.json({ error: 'Sign in to update your profile.' }, { status: 401 });
+
+    const body = await request.json();
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
+    const bio = typeof body.bio === 'string' ? body.bio.trim() : '';
+    const avatarUrl = normalizeAvatar(body.avatarUrl);
+    const bannerUrl = normalizeAvatar(body.bannerUrl);
+    const socialInput = body.socialLinks && typeof body.socialLinks === 'object' ? body.socialLinks : {};
+    const socialLinks: SocialLinks = {
+      website: normalizeUrl(socialInput.website, 'Website'),
+      instagram: normalizeUrl(socialInput.instagram, 'Instagram'),
+      tiktok: normalizeUrl(socialInput.tiktok, 'TikTok'),
+      youtube: normalizeUrl(socialInput.youtube, 'YouTube'),
+      linkedin: normalizeUrl(socialInput.linkedin, 'LinkedIn'),
+      x: normalizeUrl(socialInput.x, 'X')
+    };
+
+    if (!name || name.length > 80) {
+      return NextResponse.json({ error: 'Name must be between 1 and 80 characters.' }, { status: 400 });
+    }
+    if (!/^[a-z0-9_]{3,24}$/.test(username)) {
+      return NextResponse.json({ error: 'Username must be 3-24 characters using letters, numbers, or underscores.' }, { status: 400 });
+    }
+    if (bio.length > 280) {
+      return NextResponse.json({ error: 'Bio must be 280 characters or fewer.' }, { status: 400 });
+    }
+
+    await ensureProfile(user.uid, user.email, user.name, user.picture, user.picture);
+    await tursoClient.execute({
+      sql: `UPDATE users SET display_name = ?, username = ?, avatar_url = ?, banner_url = ?, bio = ?, social_links = ?
+        WHERE id = ?`,
+      args: [name, username, avatarUrl, bannerUrl, bio, JSON.stringify(socialLinks), user.uid]
+    });
+
+    const result = await tursoClient.execute({
+      sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
+          followers_override, following_override
+        FROM users WHERE id = ?`,
+      args: [user.uid]
+    });
+
+    return NextResponse.json({ profile: await addFollowState(profileFromRow(result.rows[0]), user.uid) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+
+    if (message.includes('UNIQUE constraint failed: users.username')) {
+      return NextResponse.json({ error: 'That username is already taken.' }, { status: 409 });
+    }
+
+    if (message.startsWith('UNIQUE constraint failed: users.email') || message.includes('users.email')) {
+      return NextResponse.json({ error: 'This account is already registered.' }, { status: 409 });
+    }
+
+    if (message.endsWith('URL is too long.') || message.includes('must be a complete URL') || message.includes('must start with https://') || message.includes('Photo must')) {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
+    console.error('Unable to update profile:', message || 'Unknown error');
+    return NextResponse.json({ error: 'Unable to update profile.' }, { status: 500 });
+  }
 }

@@ -2,130 +2,156 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
-import { Bell, Compass, Home, LogIn, Settings, UserRound } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import logo from '@/src/images/logo.png';
+import { useRouter } from 'next/navigation';
+import { onAuthStateChanged, type User } from 'firebase/auth';
+import { signOut } from 'firebase/auth';
+import { Check, LogOut, Palette, UserRound } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Sidebar } from '@/components/Sidebar';
+import { useTheme } from '@/components/ThemeProvider';
 import { getFirebaseAuth } from '@/lib/firebase-client';
+import { THEME_PALETTES } from '@/lib/themes';
 
-const navItems = [
-  { label: 'Home', href: '/feed', icon: Home },
-  { label: 'Explore', href: '/feed?view=explore', icon: Compass },
-  { label: 'Notifications', href: '/notifications', icon: Bell },
-  { label: 'Profile', href: '/profile', icon: UserRound },
-  { label: 'Settings', href: '/settings', icon: Settings }
-];
+type AccountProfile = {
+  name: string;
+  username: string;
+  avatarUrl: string;
+  bannerUrl?: string;
+};
 
-export function Sidebar() {
-  const pathname = usePathname();
-  const [user, setUser] = useState<FirebaseUser | null>(null);
-  const [profile, setProfile] = useState<{ name: string; avatarUrl: string; username: string } | null>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
+export default function SettingsPage() {
+  const router = useRouter();
+  const { theme, chooseTheme } = useTheme();
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<AccountProfile | null>(null);
+  const [isThemeSaving, setIsThemeSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const refreshProfile = useCallback(async (nextUser: User | null) => {
+    if (!nextUser) {
+      setProfile(null);
+      return;
+    }
+
+    try {
+      const token = await nextUser.getIdToken();
+      const response = await fetch('/api/profile', { cache: 'no-store', headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) return;
+      const data = await response.json();
+      setProfile(data.profile);
+    } catch {
+      setProfile(null);
+    }
+  }, []);
 
   useEffect(() => {
     const auth = getFirebaseAuth();
     if (!auth) return;
-    return onAuthStateChanged(auth, setUser);
-  }, []);
 
-  useEffect(() => {
-    if (!user) {
-      setProfile(null);
-      setUnreadCount(0);
-      return;
-    }
+    return onAuthStateChanged(auth, async (nextUser) => {
+      setUser(nextUser);
+      await refreshProfile(nextUser);
+    });
+  }, [refreshProfile]);
 
-    const activeUser = user;
-    let isMounted = true;
-    async function refreshAccountData() {
-      try {
-        const token = await activeUser.getIdToken();
-        const headers = { Authorization: `Bearer ${token}` };
-        const [profileResponse, notificationsResponse] = await Promise.all([
-          fetch('/api/profile', { cache: 'no-store', headers }),
-          fetch('/api/notifications', { cache: 'no-store', headers })
-        ]);
-        if (profileResponse.ok) {
-          const data = await profileResponse.json();
-          if (isMounted) setProfile(data.profile);
-        }
-        if (notificationsResponse.ok) {
-          const data = await notificationsResponse.json();
-          if (isMounted) setUnreadCount(data.notifications.filter((item: { readAt: string | null }) => !item.readAt).length);
-        }
-      } catch {
-        return;
-      }
-    }
+  async function handleRandomTheme() {
+    const otherThemes = THEME_PALETTES.filter((palette) => palette.id !== theme.id);
+    const nextTheme = otherThemes[Math.floor(Math.random() * otherThemes.length)];
+    setIsThemeSaving(true);
+    setMessage('');
+    const saved = await chooseTheme(nextTheme);
+    setMessage(saved
+      ? user ? 'Theme updated and saved to your account.' : 'Theme applied on this device. Sign in to sync it with your account.'
+      : 'Theme applied on this device, but account sync failed. Try again later.');
+    setIsThemeSaving(false);
+  }
 
-    void refreshAccountData();
-    const intervalId = window.setInterval(() => void refreshAccountData(), 3000);
-    return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
-    };
-  }, [user]);
+  async function handleLogout() {
+    const auth = getFirebaseAuth();
+    if (auth) await signOut(auth);
+    router.replace('/auth');
+    router.refresh();
+  }
 
   return (
-    <>
-    <aside className="hidden w-64 shrink-0 xl:block">
-      <div className="rounded-[28px] border border-violet-400/20 bg-slate-900/80 p-5 shadow-[0_0_30px_rgba(168,85,247,0.10)] backdrop-blur-xl">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-violet-400/30 bg-slate-950 p-1.5">
-            {profile?.avatarUrl || user?.photoURL ? (
-              <Image src={profile?.avatarUrl || user?.photoURL || ''} alt="" width={44} height={44} unoptimized className="h-full w-full rounded-full object-cover" />
-            ) : (
-              <Image src={logo} alt="WeLoveRanters logo" width={44} height={44} className="h-full w-full rounded-full object-cover" />
-            )}
-          </div>
-          <div>
-            <p className="text-xl font-black tracking-tight text-white">WeLoveRanters</p>
-            <p className="max-w-40 truncate text-sm text-slate-400">{profile?.name || user?.displayName || user?.email || 'Your daily release'}</p>
-          </div>
-        </div>
+    <div className="min-h-screen bg-transparent pb-24 text-slate-100 xl:pb-0">
+      <div className="mx-auto flex max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:px-8">
+        <Sidebar />
+        <main className="min-w-0 flex-1">
+          <div className="mx-auto max-w-3xl space-y-6">
+            <header>
+              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-300">Account</p>
+              <h1 className="mt-2 text-3xl font-black text-white">Settings</h1>
+            </header>
 
-        <nav className="space-y-2">
-          {navItems.map(({ label, href, icon: Icon }) => (
-            <Link
-              key={label}
-              href={href}
-              className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition ${
-                (label === 'Home' && pathname === '/feed') || (label === 'Profile' && pathname.startsWith('/profile')) || (label === 'Settings' && pathname === '/settings') || (label === 'Notifications' && pathname === '/notifications')
-                  ? 'bg-violet-500/10 text-violet-200 ring-1 ring-violet-400/20'
-                  : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </Link>
-          ))}
-          {!user ? (
-            <Link href="/auth" className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition ${pathname === '/auth' ? 'bg-violet-500/10 text-violet-200 ring-1 ring-violet-400/20' : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'}`}>
-              <LogIn className="h-4 w-4" /> Login
-            </Link>
-          ) : null}
-        </nav>
+            <section className="rounded-2xl border border-violet-400/20 bg-slate-900/80 p-5 shadow-[0_0_30px_rgba(168,85,247,0.08)] sm:p-6">
+              <div className="mb-5 flex items-center gap-3">
+                <UserRound className="h-5 w-5 text-violet-300" />
+                <h2 className="text-lg font-bold text-white">Account details</h2>
+              </div>
+              {user ? (
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    {profile?.avatarUrl || user.photoURL ? (
+                      <Image src={profile?.avatarUrl || user.photoURL || ''} alt="" width={48} height={48} unoptimized className="h-12 w-12 rounded-full object-cover" />
+                    ) : (
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-violet-500/20 font-bold text-violet-100">{(user.displayName || user.email || 'U').slice(0, 1).toUpperCase()}</div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-white">{profile?.name || user.displayName || 'Your account'}</p>
+                      <p className="truncate text-sm text-slate-400">{user.email}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Link href="/profile" className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-violet-400/40 hover:bg-violet-500/10">View profile</Link>
+                    <button type="button" onClick={handleLogout} className="inline-flex items-center gap-2 rounded-full border border-rose-400/25 px-4 py-2 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/10">
+                      <LogOut className="h-4 w-4" /> Logout
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-slate-400">Sign in to manage your account profile and sync settings.</p>
+                  <Link href="/auth" className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white">Log in</Link>
+                </div>
+              )}
+            </section>
 
-        <div className="mt-8 rounded-2xl border border-violet-400/20 bg-gradient-to-br from-violet-500/10 to-slate-900 p-4 text-white">
-          <p className="text-sm font-semibold">Need a quiet moment?</p>
-          <p className="mt-2 text-sm text-slate-300">Take a breath. You are not behind; you are just processing.</p>
-        </div>
+            <section className="rounded-2xl border border-violet-400/20 bg-slate-900/80 p-5 shadow-[0_0_30px_rgba(168,85,247,0.08)] sm:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <Palette className="h-5 w-5 text-violet-300" />
+                  <div>
+                    <h2 className="text-lg font-bold text-white">Theme</h2>
+                    <p className="mt-1 text-sm text-slate-400">{theme.name} · 3-color palette</p>
+                  </div>
+                </div>
+                <button type="button" onClick={handleRandomTheme} disabled={isThemeSaving} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-500 to-pink-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                  <Palette className="h-4 w-4" /> Theme (random)
+                </button>
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {THEME_PALETTES.map((palette) => {
+                  const isSelected = palette.id === theme.id;
+                  return (
+                    <div key={palette.id} aria-current={isSelected ? 'true' : undefined} className={`rounded-xl border p-3 ${isSelected ? 'border-violet-300/60 bg-violet-500/10' : 'border-white/10 bg-slate-950/40'}`}>
+                      <div className="mb-3 flex h-7 overflow-hidden rounded-full">
+                        {palette.colors.map((color) => <span key={color} className="flex-1" style={{ backgroundColor: color }} />)}
+                      </div>
+                      <p className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-200">
+                        {palette.name}
+                        {isSelected ? <Check className="h-4 w-4 shrink-0 text-violet-300" /> : null}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+              {message ? <p role="status" className="mt-4 text-sm text-slate-300">{message}</p> : null}
+            </section>
+          </div>
+        </main>
       </div>
-    </aside>
-    <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-50 border-t border-violet-400/20 bg-slate-950/95 px-1 pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-[0_-8px_24px_rgba(0,0,0,0.3)] backdrop-blur-xl xl:hidden">
-      <div className="mx-auto flex max-w-lg items-stretch justify-around">
-        {navItems.map(({ label, href, icon: Icon }) => {
-          const active = (label === 'Home' && pathname === '/feed') || (label === 'Profile' && pathname.startsWith('/profile')) || (label === 'Settings' && pathname === '/settings') || (label === 'Notifications' && pathname === '/notifications');
-          return (
-            <Link key={label} href={href} aria-label={label} title={label} className={`relative flex min-w-0 flex-1 items-center justify-center rounded-lg py-2.5 ${active ? 'text-violet-200' : 'text-slate-400'}`}>
-              <Icon className="h-5 w-5" />
-              {label === 'Notifications' && unreadCount > 0 ? <span className="absolute right-[calc(50%-0.9rem)] top-1 h-2 w-2 rounded-full bg-pink-500" /> : null}
-            </Link>
-          );
-        })}
-      </div>
-    </nav>
-    </>
+    </div>
   );
 }
