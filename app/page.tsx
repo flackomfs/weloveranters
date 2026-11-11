@@ -1,30 +1,21 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowRight, Flame, MessageSquareText, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowRight, Search } from 'lucide-react';
+import { AuthScreen } from '@/components/AuthScreen';
 import logo from '@/src/images/logo.png';
 
-const features = [
-  {
-    icon: Flame,
-    title: 'Venting without judgment',
-    description: 'Share raw thoughts, daily wins, and honest updates without a filtered social feed.'
-  },
-  {
-    icon: MessageSquareText,
-    title: 'Build real community',
-    description: 'Follow people who understand your mood and join meaningful conversations.'
-  },
-  {
-    icon: ShieldCheck,
-    title: 'Safe by default',
-    description: 'Firebase auth and Turso-backed data keep the app lightweight and secure.'
-  }
+const trends = [
+  ['burnout', '2.5k posts'],
+  ['anxiety', '1.9k posts'],
+  ['friendship', '1.4k posts'],
+  ['college', '980 posts'],
+  ['relationships', '860 posts']
 ];
 
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-[#050816] text-white">
-      <section className="mx-auto max-w-6xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
         <nav className="mb-8 flex items-center justify-between rounded-full border border-violet-400/30 bg-[#0b1120]/80 px-5 py-3 shadow-[0_0_30px_rgba(168,85,247,0.14)] backdrop-blur-xl">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-violet-400/40 bg-slate-900/80 p-1.5 shadow-[0_0_20px_rgba(168,85,247,0.25)]">
@@ -48,48 +39,31 @@ export default function HomePage() {
           </div>
         </nav>
 
-        <div className="mx-auto max-w-5xl">
-          <div className="mb-6 flex items-center justify-between gap-4">
-            <div className="w-16" />
-            <p className="text-center text-sm font-semibold uppercase tracking-[0.25em] text-violet-300">Why it works</p>
-            <Link href="/auth" className="inline-flex w-16 items-center justify-center rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-violet-100 transition hover:bg-violet-500/15">
-              Login
-            </Link>
+        <div className="mx-auto mt-6 grid max-w-6xl gap-8 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="flex justify-center lg:justify-start">
+            <AuthScreen />
           </div>
 
-          <h1 className="text-left text-5xl font-black leading-[0.95] tracking-[-0.06em] text-white sm:text-6xl md:text-[6rem]">
-            Built for honesty,<br />
-            emotional clarity,<br />
-            and connection
-          </h1>
+          <aside className="w-full">
+            <div className="rounded-[28px] border border-violet-400/20 bg-slate-900/80 p-5 shadow-[0_0_30px_rgba(168,85,247,0.10)] backdrop-blur-xl">
+              <div className="mb-5 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white">TRENDING NOW</h3>
+                <Search className="h-4 w-4 text-violet-300" />
+              </div>
 
-          <p className="mt-6 max-w-4xl text-left text-lg text-slate-300 md:text-xl">
-            An honest social feed for raw thoughts, real feelings, and community support without the polished performance.
-          </p>
-
-          <div className="mt-8 flex justify-start gap-4">
-            <Link href="/feed" className="rounded-full bg-white px-8 py-4 text-lg font-bold text-slate-900 transition hover:bg-slate-100">
-              Start reading
-            </Link>
-            <Link href="/auth" className="rounded-full border border-violet-400/30 bg-violet-500/10 px-8 py-4 text-lg font-bold text-violet-100 transition hover:bg-violet-500/15">
-              Join now
-            </Link>
-          </div>
-
-          <div className="mt-10 flex items-center gap-10 text-left text-slate-300">
-            <div>
-              <span className="block text-4xl font-black text-white">12k+</span>
-              <span className="text-base">Voices</span>
+              <div className="space-y-4">
+                {trends.map(([topic, count], index) => (
+                  <div key={topic} className="flex items-start gap-3 rounded-2xl border border-white/5 bg-slate-950/40 p-3">
+                    <span className="text-sm font-semibold text-slate-400">0{index + 1}</span>
+                    <div>
+                      <p className="font-medium text-slate-100">#{topic}</p>
+                      <p className="text-sm text-slate-400">{count}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div>
-              <span className="block text-4xl font-black text-white">48k</span>
-              <span className="text-base">Rants</span>
-            </div>
-            <div>
-              <span className="block text-4xl font-black text-white">4.9/5</span>
-              <span className="text-base">Community rating</span>
-            </div>
-          </div>
+          </aside>
         </div>
       </section>
 
