@@ -48,20 +48,26 @@ export default function HomePage() {
           </div>
         </nav>
 
-        <div className="mx-auto max-w-5xl pt-6">
-          <p className="mb-3 text-center text-sm font-semibold uppercase tracking-[0.25em] text-violet-300">Why it works</p>
+        <div className="mx-auto max-w-5xl">
+          <div className="mb-6 flex items-center justify-between gap-4">
+            <div className="w-16" />
+            <p className="text-center text-sm font-semibold uppercase tracking-[0.25em] text-violet-300">Why it works</p>
+            <Link href="/auth" className="inline-flex w-16 items-center justify-center rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-violet-100 transition hover:bg-violet-500/15">
+              Login
+            </Link>
+          </div>
 
-          <h1 className="text-center text-5xl font-black leading-[0.95] tracking-[-0.06em] text-white sm:text-6xl md:text-[6rem]">
+          <h1 className="text-left text-5xl font-black leading-[0.95] tracking-[-0.06em] text-white sm:text-6xl md:text-[6rem]">
             Built for honesty,<br />
             emotional clarity,<br />
             and connection
           </h1>
 
-          <p className="mx-auto mt-6 max-w-4xl text-center text-lg text-slate-300 md:text-xl">
+          <p className="mt-6 max-w-4xl text-left text-lg text-slate-300 md:text-xl">
             An honest social feed for raw thoughts, real feelings, and community support without the polished performance.
           </p>
 
-          <div className="mt-8 flex justify-center gap-4">
+          <div className="mt-8 flex justify-start gap-4">
             <Link href="/feed" className="rounded-full bg-white px-8 py-4 text-lg font-bold text-slate-900 transition hover:bg-slate-100">
               Start reading
             </Link>
@@ -70,7 +76,7 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <div className="mt-10 flex items-center justify-center gap-10 text-center text-slate-300">
+          <div className="mt-10 flex items-center gap-10 text-left text-slate-300">
             <div>
               <span className="block text-4xl font-black text-white">12k+</span>
               <span className="text-base">Voices</span>
