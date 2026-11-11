@@ -19,7 +19,7 @@ export default function HomePage() {
         <nav className="mb-8 flex items-center justify-between rounded-full border border-violet-400/30 bg-[#0b1120]/80 px-5 py-3 shadow-[0_0_30px_rgba(168,85,247,0.14)] backdrop-blur-xl">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-violet-400/40 bg-slate-900/80 p-1.5 shadow-[0_0_20px_rgba(168,85,247,0.25)]">
-              <Image src={logo} alt="WeLoveRanters logo" width={48} height={48} className="h-full w-full object-contain" />
+              <Image src={logo} alt="WeLoveRanters logo" width={48} height={48} className="h-full w-full rounded-full object-cover" />
             </div>
             <div className="hidden sm:block">
               <p className="text-lg font-black tracking-tight text-white">weloveranters.lol</p>

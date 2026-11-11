@@ -1,7 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import logo from '@/src/images/logo.png';
-import banner from '@/src/images/weloveranters lol.png';
 
 export function AuthScreen() {
   return (
@@ -10,13 +9,9 @@ export function AuthScreen() {
 
       <div className="relative p-6 sm:p-8">
         <div className="mb-5 flex justify-center">
-          <div className="rounded-[28px] border border-violet-400/30 bg-slate-900/80 p-3 shadow-[0_0_25px_rgba(168,85,247,0.2)]">
-            <Image src={logo} alt="WeLoveRanters logo" width={112} height={112} priority className="h-24 w-24 object-contain" />
+          <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-violet-400/40 bg-slate-900/80 p-1.5 shadow-[0_0_25px_rgba(168,85,247,0.2)]">
+            <Image src={logo} alt="WeLoveRanters logo" width={112} height={112} priority className="h-full w-full rounded-full object-cover" />
           </div>
-        </div>
-
-        <div className="mb-6 flex justify-center">
-          <Image src={banner} alt="weloveranters.lol" width={700} height={200} priority className="h-auto w-full max-w-[520px] object-contain" />
         </div>
 
         <div className="mb-6 text-center">
