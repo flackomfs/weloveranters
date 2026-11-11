@@ -1,51 +1,49 @@
-const mockPosts = [
-  {
-    id: 1,
-    author: {
-      name: 'Mila Hart',
-      username: 'mila'
-    },
-    createdAt: '2h ago',
-    content:
-      'Some days I feel like I am trying to hold my life together with a paperclip and a prayer. Still showing up anyway.',
-    likes: 1302,
-    comments: 231,
-    reposts: 42,
-    tags: ['burnout', 'stress', 'reallife']
-  },
-  {
-    id: 2,
-    author: {
-      name: 'Nico Flores',
-      username: 'nicoflores'
-    },
-    createdAt: '5h ago',
-    content:
-      'I do not need a perfect explanation for why I am exhausted. I just need someone to recognize I am tired and not ask me to perform wellness.',
-    likes: 842,
-    comments: 119,
-    reposts: 28,
-    tags: ['mentalhealth', 'honesty']
-  },
-  {
-    id: 3,
-    author: {
-      name: 'Jenna Brooks',
-      username: 'jennab'
-    },
-    createdAt: '1d ago',
-    content:
-      'The weirdest thing about healing is realizing you can still love people and also need distance from them. That is not betrayal. That is self-respect.',
-    likes: 1760,
-    comments: 244,
-    reposts: 63,
-    tags: ['healing', 'boundaries']
-  }
-];
+'use client';
+
+import Image from 'next/image';
+import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
 
 import { PostComposer } from '@/components/PostComposer';
 
+type FeedPost = {
+  id: string;
+  content: string;
+  createdAt: string;
+  likes: number;
+  comments: number;
+  reposts: number;
+  authorName: string | null;
+  authorUsername: string | null;
+  avatarUrl: string | null;
+  tags: string[];
+};
+
 export function Feed() {
+  const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAvailable, setIsAvailable] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadPosts = useCallback(async () => {
+    try {
+      const response = await fetch('/api/posts', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to load posts.');
+      setPosts(data.posts);
+      setIsAvailable(data.available);
+      setError('');
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Unable to load posts.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPosts();
+  }, [loadPosts]);
+
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-soft">
       <div className="mb-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -57,20 +55,28 @@ export function Feed() {
         />
       </div>
 
-      <PostComposer />
+      <PostComposer onPosted={loadPosts} />
 
       <div className="mt-6 space-y-4">
-        {mockPosts.map((post) => (
+        {isLoading ? <p className="py-8 text-center text-sm text-slate-500">Loading posts...</p> : null}
+        {!isLoading && error ? <p role="alert" className="py-8 text-center text-sm text-rose-600">{error}</p> : null}
+        {!isLoading && !error && !isAvailable ? <p className="py-8 text-center text-sm text-slate-500">The feed is unavailable because database storage is not configured.</p> : null}
+        {!isLoading && !error && isAvailable && posts.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No rants yet. Be the first to share one.</p> : null}
+        {posts.map((post) => (
           <article key={post.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-sm font-bold text-white">
-                {post.author.name.slice(0, 1)}
-              </div>
+              {post.avatarUrl ? (
+                <Image src={post.avatarUrl} alt="" width={44} height={44} unoptimized className="h-11 w-11 rounded-full object-cover" />
+              ) : (
+                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-sm font-bold text-white">
+                  {(post.authorName || 'U').slice(0, 1).toUpperCase()}
+                </div>
+              )}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <p className="font-semibold text-slate-900">{post.author.name}</p>
-                  <span className="text-sm text-slate-500">@{post.author.username}</span>
-                  <span className="text-sm text-slate-400">· {post.createdAt}</span>
+                  <p className="font-semibold text-slate-900">{post.authorName || 'Member'}</p>
+                  {post.authorUsername ? <Link href={`/profile/${encodeURIComponent(post.authorUsername)}`} className="text-sm text-slate-500 hover:text-violet-700">@{post.authorUsername}</Link> : null}
+                  <span className="text-sm text-slate-400">· {new Date(post.createdAt).toLocaleString()}</span>
                 </div>
                 <p className="mt-3 whitespace-pre-line text-[15px] leading-7 text-slate-700">{post.content}</p>
 

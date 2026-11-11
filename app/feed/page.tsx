@@ -2,7 +2,7 @@
 
 import { Sidebar } from '@/components/Sidebar';
 import { Feed } from '@/components/Feed';
-import { RightSidebar } from '@/components/RightSidebar';
+import { TrendingNow } from '@/components/TrendingNow';
 
 export default function FeedPage() {
   return (
@@ -12,7 +12,7 @@ export default function FeedPage() {
         <main className="min-w-0 flex-1">
           <Feed />
         </main>
-        <RightSidebar />
+        <TrendingNow />
       </div>
     </div>
   );

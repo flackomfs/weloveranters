@@ -23,6 +23,7 @@ export async function initTursoSchema() {
           username TEXT UNIQUE,
           avatar_url TEXT,
           bio TEXT,
+          social_links TEXT,
           provider TEXT,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
@@ -59,6 +60,12 @@ export async function initTursoSchema() {
       `);
 
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_hashtags_created_at_idx ON post_hashtags (created_at);');
+
+      const userColumns = await tursoClient.execute('PRAGMA table_info(users)');
+      const existingColumns = new Set(userColumns.rows.map((row) => String(row.name)));
+      if (!existingColumns.has('social_links')) {
+        await tursoClient.execute('ALTER TABLE users ADD COLUMN social_links TEXT');
+      }
     })().catch((error) => {
       schemaPromise = null;
       throw error;
