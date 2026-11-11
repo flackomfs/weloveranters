@@ -2,7 +2,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowRight, Flame, MessageSquareText, ShieldCheck, Sparkles } from 'lucide-react';
 import logo from '@/src/images/logo.png';
-import banner from '@/src/images/weloveranters lol.png';
 
 const features = [
   {
@@ -26,50 +25,48 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-[#050816] text-white">
       <section className="mx-auto max-w-7xl px-4 pb-16 pt-8 sm:px-6 lg:px-8">
-        <nav className="flex items-center justify-between rounded-full border border-violet-400/20 bg-slate-900/70 px-5 py-3 shadow-[0_0_30px_rgba(168,85,247,0.12)] backdrop-blur-xl">
+        <nav className="mb-6 flex items-center justify-between rounded-full border border-violet-400/20 bg-slate-900/70 px-5 py-3 shadow-[0_0_30px_rgba(168,85,247,0.12)] backdrop-blur-xl">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-violet-400/40 bg-slate-900/80 p-1.5">
+            <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-violet-400/40 bg-slate-900/80 p-1.5 shadow-[0_0_20px_rgba(168,85,247,0.25)]">
               <Image src={logo} alt="WeLoveRanters logo" width={48} height={48} className="h-full w-full object-contain" />
             </div>
-            <div>
-              <p className="text-lg font-black tracking-tight text-white">WeLoveRanters</p>
+            <div className="hidden sm:block">
+              <p className="text-lg font-black tracking-tight text-white">weloveranters.lol</p>
             </div>
           </div>
 
-          <div className="hidden items-center gap-7 text-sm text-slate-300 md:flex">
-            <Link href="#features" className="transition hover:text-violet-200">Features</Link>
-            <Link href="#community" className="transition hover:text-violet-200">Community</Link>
-            <Link href="/auth" className="transition hover:text-violet-200">Login</Link>
+          <div className="flex items-center gap-3">
+            <Link href="/auth" className="inline-flex items-center justify-center rounded-full border border-violet-400/30 bg-violet-500/10 px-4 py-2 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/15">
+              Login
+            </Link>
+            <Link
+              href="/feed"
+              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-500 to-pink-500 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_0_25px_rgba(168,85,247,0.35)] transition hover:brightness-110"
+            >
+              Explore feed <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
-
-          <Link
-            href="/feed"
-            className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-500 to-pink-500 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_0_25px_rgba(168,85,247,0.35)] transition hover:brightness-110"
-          >
-            Explore feed <ArrowRight className="h-4 w-4" />
-          </Link>
         </nav>
 
-        <div className="grid items-center gap-12 pb-20 pt-16 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="mb-8 rounded-full border border-violet-400/30 bg-violet-500/10 px-4 py-3 text-center text-sm font-semibold uppercase tracking-[0.2em] text-violet-100 shadow-[0_0_25px_rgba(168,85,247,0.10)]">
+          A space for honest conversations
+        </div>
+
+        <div className="grid items-center gap-12 pb-20 pt-4 lg:grid-cols-[1.15fr_0.85fr]">
           <div>
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-sm text-violet-100">
-              <Sparkles className="h-4 w-4" />
-              A space for honest conversations
-            </div>
-
-            <div className="mb-6 max-w-xl">
-              <Image src={banner} alt="weLoveRanters banner" width={900} height={220} className="h-auto w-full object-contain" />
-            </div>
-
+            <p className="mb-4 text-sm font-semibold uppercase tracking-[0.2em] text-violet-300">Why it works</p>
+            <h1 className="max-w-xl text-5xl font-black tracking-tight text-white sm:text-6xl">
+              Built for honesty, emotional clarity, and connection
+            </h1>
             <p className="mt-6 max-w-xl text-lg text-slate-300">
               An honest social feed for raw thoughts, real feelings, and community support without the polished performance.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-4">
-              <Link href="/feed" className="rounded-full bg-white px-6 py-3 font-semibold text-slate-900 transition hover:bg-slate-100">
+              <Link href="/feed" className="rounded-full bg-white px-6 py-3 font-bold text-slate-900 transition hover:bg-slate-100">
                 Start reading
               </Link>
-              <Link href="/auth" className="rounded-full border border-violet-400/30 bg-violet-500/10 px-6 py-3 font-semibold text-violet-100 transition hover:bg-violet-500/15">
+              <Link href="/auth" className="rounded-full border border-violet-400/30 bg-violet-500/10 px-6 py-3 font-bold text-violet-100 transition hover:bg-violet-500/15">
                 Join now
               </Link>
             </div>
@@ -91,11 +88,13 @@ export default function HomePage() {
           </div>
 
           <div className="rounded-[30px] border border-violet-400/20 bg-gradient-to-br from-slate-900 via-slate-900 to-violet-950/80 p-6 shadow-[0_0_40px_rgba(168,85,247,0.18)]">
-            <div className="mb-6 flex items-center justify-between">
+            <div className="mb-6 flex items-center justify-between gap-4">
+              <Link href="/auth" className="inline-flex items-center justify-center rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-violet-100 transition hover:bg-violet-500/15">
+                Login
+              </Link>
               <span className="rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-violet-100">
                 Trending now
               </span>
-              <span className="text-sm text-slate-400">Live</span>
             </div>
 
             <div className="space-y-5">
