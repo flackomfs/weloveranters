@@ -29,6 +29,10 @@ export async function GET() {
       headers: { 'Cache-Control': 'no-store' }
     });
   } catch (error) {
+    console.error(
+      'Unable to load trending hashtags:',
+      error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown database error'
+    );
     return NextResponse.json({ error: 'Unable to load trending hashtags.' }, {
       status: 500,
       headers: { 'Cache-Control': 'no-store' }
