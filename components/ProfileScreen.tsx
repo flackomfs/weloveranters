@@ -51,28 +51,40 @@ const socialFields: Array<{ key: keyof SocialLinks; label: string }> = [
   { key: 'x', label: 'X' }
 ];
 
-async function compressPhoto(file: File) {
+async function compressPhoto(file: File, field: 'avatarUrl' | 'bannerUrl') {
   if (!file.type.startsWith('image/')) throw new Error('Choose an image file.');
   const image = await createImageBitmap(file);
-  const scale = Math.min(1, 512 / Math.max(image.width, image.height));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(image.width * scale));
-  canvas.height = Math.max(1, Math.round(image.height * scale));
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('This browser cannot process the image.');
-  context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  image.close();
+  try {
+    const maxDimension = field === 'bannerUrl' ? 1920 : 1024;
+    const initialScale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+    const qualities = [0.92, 0.88, 0.84, 0.8];
 
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', 0.78));
-  if (!blob) throw new Error('Unable to prepare the photo.');
-  if (blob.size > 320_000) throw new Error('Choose a smaller photo; compressed images must be under 320 KB.');
+    for (let scale = initialScale; scale >= initialScale * 0.5; scale *= 0.9) {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('This browser cannot process the image.');
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
 
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Unable to read the photo.'));
-    reader.onerror = () => reject(new Error('Unable to read the photo.'));
-    reader.readAsDataURL(blob);
-  });
+      for (const quality of qualities) {
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', quality));
+        if (!blob) throw new Error('Unable to prepare the image.');
+        if (blob.size <= 800_000) {
+          return await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Unable to read the image.'));
+            reader.onerror = () => reject(new Error('Unable to read the image.'));
+            reader.readAsDataURL(blob);
+          });
+        }
+      }
+    }
+
+    throw new Error('This image is too large to optimize. Choose another image.');
+  } finally {
+    image.close();
+  }
 }
 
 export function ProfileScreen({ username }: { username?: string }) {
@@ -182,7 +194,7 @@ export function ProfileScreen({ username }: { username?: string }) {
     if (!file) return;
     setError('');
     try {
-      const nextUrl = await compressPhoto(file);
+      const nextUrl = await compressPhoto(file, field);
       setForm((current) => ({ ...current, [field]: nextUrl }));
     } catch (photoError) {
       setError(photoError instanceof Error ? photoError.message : 'Unable to prepare the photo.');
@@ -434,7 +446,7 @@ export function ProfileScreen({ username }: { username?: string }) {
                         {form.bannerUrl ? <button type="button" onClick={() => setForm({ ...form, bannerUrl: '' })} className="px-3 py-2 text-sm font-semibold text-slate-500 hover:text-rose-600">Remove banner</button> : null}
                       </div>
 
-                      <span className="block text-xs text-slate-400">Stored as a compressed Base64 image (max 320 KB).</span>
+                      <span className="block text-xs text-slate-400">Optimized for sharp display (up to 1920px and 800 KB).</span>
                     </div>
 
                     <label className="block text-sm font-medium text-slate-700">Bio

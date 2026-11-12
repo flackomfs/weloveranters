@@ -12,6 +12,8 @@ type SocialLinks = {
   x?: string;
 };
 
+const MAX_PROFILE_IMAGE_BYTES = 800_000;
+
 function parseSocialLinks(value: unknown): SocialLinks {
   if (typeof value !== 'string') return {};
   try {
@@ -27,6 +29,7 @@ function profileFromRow(row: Record<string, unknown>) {
     name: String(row.display_name || 'New user'),
     username: String(row.username || ''),
     avatarUrl: String(row.avatar_url || ''),
+    bannerUrl: String(row.banner_url || ''),
     bio: String(row.bio || ''),
     socialLinks: parseSocialLinks(row.social_links),
     createdAt: String(row.created_at || ''),
@@ -73,11 +76,11 @@ function makeDefaultUsername(email: string | undefined, uid: string) {
   return `${base}_${suffix}`;
 }
 
-async function ensureProfile(uid: string, email?: string, displayName?: string, avatarUrl?: string) {
+async function ensureProfile(uid: string, email?: string, displayName?: string, avatarUrl?: string, bannerUrl?: string) {
   if (!tursoClient) throw new Error('Profile storage is unavailable. Configure the Turso database environment variables.');
 
   const existing = await tursoClient.execute({
-    sql: 'SELECT id, username, display_name, avatar_url, email FROM users WHERE id = ?',
+    sql: 'SELECT id, username, display_name, avatar_url, banner_url, email FROM users WHERE id = ?',
     args: [uid]
   });
   const current = existing.rows[0];
@@ -91,9 +94,10 @@ async function ensureProfile(uid: string, email?: string, displayName?: string, 
         username = CASE WHEN username IS NULL OR username = '' THEN ? ELSE username END,
         display_name = CASE WHEN display_name IS NULL OR display_name = '' THEN ? ELSE display_name END,
         avatar_url = CASE WHEN avatar_url IS NULL OR avatar_url = '' THEN ? ELSE avatar_url END,
+        banner_url = CASE WHEN banner_url IS NULL OR banner_url = '' THEN ? ELSE banner_url END,
         email = CASE WHEN email IS NULL OR email = '' THEN ? ELSE email END
         WHERE id = ?`,
-      args: [defaultUsername, displayName || emailName, avatarUrl || '', safeEmail, uid]
+      args: [defaultUsername, displayName || emailName, avatarUrl || '', bannerUrl || '', safeEmail, uid]
     });
   } else {
     const emailOwner = email
@@ -106,14 +110,14 @@ async function ensureProfile(uid: string, email?: string, displayName?: string, 
     const insertEmail = emailOwner?.rows.length ? null : safeEmail;
 
     await tursoClient.execute({
-      sql: `INSERT INTO users (id, email, display_name, username, avatar_url, social_links)
-        VALUES (?, ?, ?, ?, ?, '{}')`,
-      args: [uid, insertEmail, displayName || emailName, defaultUsername, avatarUrl || '']
+      sql: `INSERT INTO users (id, email, display_name, username, avatar_url, banner_url, social_links)
+        VALUES (?, ?, ?, ?, ?, ?, '{}')`,
+      args: [uid, insertEmail, displayName || emailName, defaultUsername, avatarUrl || '', bannerUrl || '']
     });
   }
 
   const profile = await tursoClient.execute({
-    sql: `SELECT id, display_name, username, avatar_url, bio, social_links, created_at,
+    sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
       followers_override, following_override
       FROM users WHERE id = ?`,
     args: [uid]
@@ -140,14 +144,18 @@ function normalizeUrl(value: unknown, label: string) {
   return url.toString();
 }
 
-function normalizeAvatar(value: unknown) {
+function normalizeProfileImage(value: unknown, label: string) {
   if (typeof value !== 'string' || !value.trim()) return '';
   const avatar = value.trim();
-  if (avatar.length > 450_000) throw new Error('Photo must be smaller than 330 KB.');
+  if (avatar.length > 1_100_000) throw new Error(`${label} must be 800 KB or smaller.`);
 
   if (avatar.startsWith('data:')) {
-    if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(avatar)) {
-      throw new Error('Photo must be a Base64 JPEG, PNG, or WebP image.');
+    const match = avatar.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/);
+    if (!match) {
+      throw new Error(`${label} must be a Base64 JPEG, PNG, or WebP image.`);
+    }
+    if (Buffer.from(match[2], 'base64').byteLength > MAX_PROFILE_IMAGE_BYTES) {
+      throw new Error(`${label} must be 800 KB or smaller.`);
     }
     return avatar;
   }
@@ -181,7 +189,7 @@ export async function GET(request: Request) {
 
     if (username) {
       const result = await tursoClient.execute({
-        sql: `SELECT id, display_name, username, avatar_url, bio, social_links, created_at,
+        sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
             followers_override, following_override
           FROM users WHERE username = ?`,
         args: [username.toLowerCase()]
@@ -221,7 +229,8 @@ export async function PUT(request: Request) {
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
     const bio = typeof body.bio === 'string' ? body.bio.trim() : '';
-    const avatarUrl = normalizeAvatar(body.avatarUrl);
+    const avatarUrl = normalizeProfileImage(body.avatarUrl, 'Photo');
+    const bannerUrl = normalizeProfileImage(body.bannerUrl, 'Banner');
     const socialInput = body.socialLinks && typeof body.socialLinks === 'object' ? body.socialLinks : {};
     const socialLinks: SocialLinks = {
       website: normalizeUrl(socialInput.website, 'Website'),
@@ -245,13 +254,13 @@ export async function PUT(request: Request) {
     await ensureProfile(user.uid, user.email, user.name, user.picture);
 
     await tursoClient.execute({
-      sql: `UPDATE users SET display_name = ?, username = ?, avatar_url = ?, bio = ?, social_links = ?
+      sql: `UPDATE users SET display_name = ?, username = ?, avatar_url = ?, banner_url = ?, bio = ?, social_links = ?
         WHERE id = ?`,
-      args: [name, username, avatarUrl, bio, JSON.stringify(socialLinks), user.uid]
+      args: [name, username, avatarUrl, bannerUrl, bio, JSON.stringify(socialLinks), user.uid]
     });
 
     const result = await tursoClient.execute({
-      sql: `SELECT id, display_name, username, avatar_url, bio, social_links, created_at,
+      sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
           followers_override, following_override
         FROM users WHERE id = ?`,
       args: [user.uid]
@@ -269,7 +278,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'This account is already registered.' }, { status: 409 });
     }
 
-    if (message.endsWith('URL is too long.') || message.includes('must be a complete URL') || message.includes('must start with https://') || message.includes('Photo must')) {
+    if (message.endsWith('URL is too long.') || message.includes('must be a complete URL') || message.includes('must start with https://') || message.includes('must be a Base64') || message.includes('must be 800 KB or smaller')) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
