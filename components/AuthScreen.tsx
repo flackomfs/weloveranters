@@ -80,7 +80,7 @@ export function AuthScreen() {
         </div>
 
         <div className="mb-4 text-center">
-          <h1 className="text-2xl font-black tracking-tight text-white">{mode === 'login' ? 'Welcome, Ranters' : 'Create your account'}</h1>
+          <h1 className="text-2xl font-black tracking-tight text-white">{mode === 'login' ? 'Welcome Ranter' : 'Create your account'}</h1>
           {mode !== 'login' ? <p className="mt-1 text-sm text-slate-300">Join the conversation, honestly.</p> : null}
         </div>
 
