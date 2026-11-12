@@ -289,12 +289,12 @@ export function ProfileScreen({ username }: { username?: string }) {
   }
 
   if (isLoading) {
-    return <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900"><p className="mx-auto max-w-3xl text-sm text-slate-500">Loading profile...</p></main>;
+    return <main className="min-h-screen bg-transparent px-4 py-8 text-slate-100"><p className="mx-auto max-w-3xl text-sm text-slate-300">Loading profile...</p></main>;
   }
 
   if (needsSignIn && isOwnProfile) {
     return (
-      <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900">
+      <main className="min-h-screen bg-transparent px-4 py-8 text-slate-900">
         <section className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
           <h1 className="text-xl font-bold">Sign in to view your profile</h1>
           <p className="mt-2 text-sm text-slate-500">Your Google account profile will appear here after you sign in.</p>
@@ -306,7 +306,7 @@ export function ProfileScreen({ username }: { username?: string }) {
 
   if (!profile) {
     return (
-      <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900">
+      <main className="min-h-screen bg-transparent px-4 py-8 text-slate-900">
         <section className="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
           <h1 className="text-xl font-bold">Profile unavailable</h1>
           <p className="mt-2 text-sm text-slate-500">{error || 'This profile could not be found.'}</p>
@@ -318,19 +318,20 @@ export function ProfileScreen({ username }: { username?: string }) {
 
   const joined = profile.createdAt ? new Date(profile.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : '';
   const displaySocialLinks = socialFields.filter(({ key }) => profile.socialLinks?.[key]);
+  const isProfileOwner = Boolean(firebaseUser && profile.id === firebaseUser.uid);
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24 text-slate-900 xl:pb-0">
+    <div className="min-h-screen bg-transparent pb-24 text-slate-900 xl:pb-0">
       <div className="mx-auto flex max-w-7xl gap-6 px-3 py-3 sm:px-6 sm:py-6 lg:px-8">
         <Sidebar />
         <main className="min-w-0 flex-1 px-1 sm:px-0">
           <div className="mx-auto max-w-4xl">
-            <Link href="/feed" className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900">
+            <Link href="/feed" className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-slate-300 hover:text-white">
               <ArrowLeft className="h-4 w-4" /> Back to feed
             </Link>
 
             <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-soft">
-              <div className="relative h-32 overflow-hidden bg-gradient-to-r from-pink-500 via-violet-500 to-indigo-500">
+              <div className="relative z-0 h-32 overflow-hidden bg-gradient-to-r from-pink-500 via-violet-500 to-indigo-500">
                 {(isEditing ? form.bannerUrl : profile.bannerUrl) ? (
                   <Image
                     src={isEditing ? form.bannerUrl : profile.bannerUrl}
@@ -343,7 +344,7 @@ export function ProfileScreen({ username }: { username?: string }) {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent" />
               </div>
 
-              <div className="px-6 pb-6">
+              <div className="relative z-10 px-6 pb-6">
                 <div className="-mt-12 flex items-end justify-between gap-4">
                   {(isEditing ? form.avatarUrl : profile.avatarUrl) ? (
                     <Image src={isEditing ? form.avatarUrl : profile.avatarUrl} alt={`${profile.name}'s profile photo`} width={96} height={96} unoptimized className="h-24 w-24 rounded-full border-4 border-white object-cover shadow-lg" />
@@ -357,7 +358,7 @@ export function ProfileScreen({ username }: { username?: string }) {
                       {isEditing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
                       {isEditing ? 'Cancel' : 'Edit profile'}
                     </button>
-                  ) : firebaseUser ? (
+                  ) : isProfileOwner ? null : firebaseUser ? (
                     <button type="button" onClick={handleFollow} disabled={isFollowingSaving} className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60">
                       {isFollowingSaving ? 'Updating...' : profile.isFollowing ? 'Following' : 'Follow'}
                     </button>

@@ -65,7 +65,7 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+    <form onSubmit={handleSubmit} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 sm:rounded-2xl sm:p-3">
       <div className="mb-2 flex items-center gap-2.5">
         {user?.photoURL ? (
           <Image src={user.photoURL} alt="" width={36} height={36} unoptimized className="h-9 w-9 rounded-full object-cover" />
@@ -81,12 +81,12 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
         value={content}
         onChange={(event) => setContent(event.target.value)}
         placeholder={!user ? 'Log in to start posting your rant.' : 'What is weighing on your mind today?'}
-        rows={3}
+        rows={2}
         disabled={!isAuthReady || !user}
-        className="w-full resize-none rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-800 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:cursor-not-allowed disabled:bg-slate-100"
+        className="w-full resize-none rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-800 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:cursor-not-allowed disabled:bg-slate-100 sm:p-3"
       />
 
-      <div className="mt-3 flex items-center justify-between gap-3">
+      <div className="mt-2 flex items-center justify-between gap-3 sm:mt-3">
         <p className="text-[10px] text-slate-500 sm:text-xs">{!user ? 'You need to sign in before posting.' : 'Keep it honest, kind, and respectful.'}</p>
         <button
           type="submit"

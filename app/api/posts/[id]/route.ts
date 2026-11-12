@@ -72,8 +72,9 @@ export async function POST(request: Request, { params }: RouteContext) {
       return NextResponse.json({ error: 'Your session expired. Sign in again.' }, { status: 401 });
     }
 
-    const post = await tursoClient.execute({ sql: 'SELECT id FROM posts WHERE id = ?', args: [params.id] });
+    const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [params.id] });
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
+    const postAuthorId = String(post.rows[0].user_id);
 
     const rawBody = await request.json();
     if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
@@ -83,12 +84,18 @@ export async function POST(request: Request, { params }: RouteContext) {
     const action = typeof body.action === 'string' ? body.action : '';
 
     if (action === 'like') {
-      await tursoClient.execute({
-        sql: 'UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id = ?',
-        args: [params.id]
-      });
-      const result = await tursoClient.execute({ sql: 'SELECT likes FROM posts WHERE id = ?', args: [params.id] });
-      return NextResponse.json({ likes: Number(result.rows[0]?.likes || 0) });
+      const statements = [
+        { sql: 'UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id = ?', args: [params.id] }
+      ];
+      if (postAuthorId !== user.uid) {
+        statements.push({
+          sql: 'INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+          args: [`like_${crypto.randomUUID()}`, postAuthorId, user.uid, 'like', params.id, new Date().toISOString()]
+        });
+      }
+      statements.push({ sql: 'SELECT likes FROM posts WHERE id = ?', args: [params.id] });
+      const results = await tursoClient.batch(statements, 'write');
+      return NextResponse.json({ likes: Number(results[results.length - 1].rows[0]?.likes || 0) });
     }
 
     const actor = await getActorProfile(tursoClient, user.uid, user.email, user.name);
@@ -107,29 +114,44 @@ export async function POST(request: Request, { params }: RouteContext) {
         content,
         createdAt: new Date().toISOString()
       };
-      const results = await tursoClient.batch([
+      const statements = [
         {
           sql: `INSERT INTO post_comments
             (id, post_id, user_id, author_name, author_username, content, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
           args: [comment.id, comment.postId, comment.userId, comment.authorName, comment.authorUsername, comment.content, comment.createdAt]
-        },
-        { sql: 'SELECT COUNT(*) AS count FROM post_comments WHERE post_id = ?', args: [params.id] }
-      ], 'write');
-      return NextResponse.json({ comment, comments: Number(results[1].rows[0]?.count || 0) });
+        }
+      ];
+      if (postAuthorId !== user.uid) {
+        statements.push({
+          sql: 'INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+          args: [`comment_${crypto.randomUUID()}`, postAuthorId, user.uid, 'comment', params.id, comment.createdAt]
+        });
+      }
+      statements.push({ sql: 'SELECT COUNT(*) AS count FROM post_comments WHERE post_id = ?', args: [params.id] });
+      const results = await tursoClient.batch(statements, 'write');
+      return NextResponse.json({ comment, comments: Number(results[results.length - 1].rows[0]?.count || 0) });
     }
 
     if (action === 'repost') {
-      const results = await tursoClient.batch([
+      const statements = [
         {
           sql: `INSERT INTO post_reposts (user_id, post_id, author_name, author_username, created_at)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id, post_id) DO NOTHING`,
           args: [user.uid, params.id, actor.name, actor.username, new Date().toISOString()]
-        },
-        { sql: 'SELECT COUNT(*) AS count FROM post_reposts WHERE post_id = ?', args: [params.id] }
-      ], 'write');
-      return NextResponse.json({ reposted: true, reposts: Number(results[1].rows[0]?.count || 0) });
+        }
+      ];
+      if (postAuthorId !== user.uid) {
+        statements.push({
+          sql: `INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at)
+            SELECT ?, ?, ?, ?, ?, ? WHERE changes() > 0`,
+          args: [`repost_${crypto.randomUUID()}`, postAuthorId, user.uid, 'repost', params.id, new Date().toISOString()]
+        });
+      }
+      statements.push({ sql: 'SELECT COUNT(*) AS count FROM post_reposts WHERE post_id = ?', args: [params.id] });
+      const results = await tursoClient.batch(statements, 'write');
+      return NextResponse.json({ reposted: true, reposts: Number(results[results.length - 1].rows[0]?.count || 0) });
     }
 
     return NextResponse.json({ error: 'Choose a valid post action.' }, { status: 400 });
@@ -145,7 +167,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   try {
     await initTursoSchema();
     const token = getBearerToken(request);
-    if (!token) return NextResponse.json({ error: 'Admin access required.' }, { status: 401 });
+    if (!token) return NextResponse.json({ error: 'Sign in to delete posts.' }, { status: 401 });
 
     let user;
     try {
@@ -153,16 +175,18 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     } catch {
       return NextResponse.json({ error: 'Your session expired. Sign in again.' }, { status: 401 });
     }
-    if (!isAdminUid(user.uid)) return NextResponse.json({ error: 'Admin access required.' }, { status: 403 });
 
-    const post = await tursoClient.execute({ sql: 'SELECT id FROM posts WHERE id = ?', args: [params.id] });
+    const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [params.id] });
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
+    if (!isAdminUid(user.uid) && String(post.rows[0].user_id) !== user.uid) {
+      return NextResponse.json({ error: 'You can only delete your own posts.' }, { status: 403 });
+    }
 
     await tursoClient.batch([
       { sql: 'DELETE FROM post_comments WHERE post_id = ?', args: [params.id] },
       { sql: 'DELETE FROM post_reposts WHERE post_id = ?', args: [params.id] },
       { sql: 'DELETE FROM post_hashtags WHERE post_id = ?', args: [params.id] },
-      { sql: "DELETE FROM notifications WHERE entity_id = ? AND type = 'post'", args: [params.id] },
+      { sql: 'DELETE FROM notifications WHERE entity_id = ?', args: [params.id] },
       { sql: 'DELETE FROM posts WHERE id = ?', args: [params.id] }
     ], 'write');
 

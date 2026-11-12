@@ -55,9 +55,10 @@ export async function GET(request: Request) {
         LEFT JOIN users u ON u.id = e.authorId
         LEFT JOIN users ru ON ru.id = e.reposterId
         WHERE (? = '' OR COALESCE(ru.username, e.reposterUsername, u.username) = ?)
+          AND (? <> '' OR e.reposterId IS NULL)
         ORDER BY e.createdAt DESC
         LIMIT 100`,
-      args: [viewerId, username, username]
+      args: [viewerId, username, username, username]
     });
 
     const posts = result.rows.map((row) => ({
@@ -70,7 +71,7 @@ export async function GET(request: Request) {
       comments: Number(row.comments || 0),
       reposts: Number(row.reposts || 0),
       isReposted: Number(row.isReposted) > 0,
-      canDelete: Boolean(viewerId && isAdminUid(viewerId))
+      canDelete: Boolean(viewerId && (isAdminUid(viewerId) || String(row.userId) === viewerId))
     }));
 
     return NextResponse.json({ posts, available: true }, { headers: { 'Cache-Control': 'no-store' } });

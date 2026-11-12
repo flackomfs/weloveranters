@@ -170,7 +170,7 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
   }
 
   return (
-    <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:rounded-3xl sm:p-4">
+    <article className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 sm:rounded-3xl sm:p-4">
       {post.repostedByName ? (
         <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-500">
           <Repeat2 className="h-3.5 w-3.5" />
@@ -188,11 +188,11 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
         </p>
       ) : null}
 
-      <div className="flex items-start gap-2.5 sm:gap-3">
+      <div className="flex items-start gap-2 sm:gap-3">
         {post.avatarUrl ? (
-          <Image src={post.avatarUrl} alt="" width={40} height={40} unoptimized className="h-10 w-10 rounded-full object-cover sm:h-11 sm:w-11" />
+          <Image src={post.avatarUrl} alt="" width={40} height={40} unoptimized className="h-9 w-9 rounded-full object-cover sm:h-11 sm:w-11" />
         ) : (
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-xs font-bold text-white sm:h-11 sm:w-11">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-xs font-bold text-white sm:h-11 sm:w-11">
             {(post.authorName || 'U').slice(0, 1).toUpperCase()}
           </div>
         )}
@@ -206,10 +206,10 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
             {post.authorUsername ? <Link href={`/profile/${encodeURIComponent(post.authorUsername)}`} className="text-slate-500 hover:text-violet-700">@{post.authorUsername}</Link> : null}
             <span className="text-slate-400">· {new Date(post.createdAt).toLocaleString()}</span>
           </div>
-          <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700 sm:mt-2.5 sm:text-[14px] sm:leading-6">{post.content}</p>
+          <p className="mt-1.5 whitespace-pre-line text-sm leading-5 text-slate-700 sm:mt-2.5 sm:text-[14px] sm:leading-6">{post.content}</p>
 
           {post.tags.length > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-1.5 sm:gap-2">
+            <div className="mt-2 flex flex-wrap gap-1.5 sm:mt-3 sm:gap-2">
               {post.tags.map((tag) => (
                 <span key={tag} className="rounded-full bg-pink-100 px-2 py-0.5 text-[10px] font-medium text-pink-700 sm:text-xs">
                   #{tag}
@@ -218,7 +218,7 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
             </div>
           ) : null}
 
-          <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-500 sm:gap-5 sm:text-sm">
+          <div className="mt-2.5 flex flex-wrap items-center gap-4 text-xs text-slate-500 sm:mt-3 sm:gap-5 sm:text-sm">
             <button type="button" onClick={handleLike} aria-label={`Send heart, ${likes} hearts`} className="inline-flex items-center gap-1.5 text-rose-600 hover:text-rose-700">
               <Heart className="h-4 w-4 fill-current" /> {likes}
             </button>

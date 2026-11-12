@@ -98,6 +98,11 @@ export function Sidebar() {
               >
                 <Icon className="h-4 w-4" />
                 {label}
+                {label === 'Notifications' && unreadCount > 0 ? (
+                  <span className="ml-auto min-w-5 rounded-full bg-pink-600 px-1.5 py-0.5 text-center text-[10px] font-bold leading-none text-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                ) : null}
               </Link>
             ))}
             {!user ? (
@@ -120,7 +125,11 @@ export function Sidebar() {
             return (
               <Link key={label} href={href} aria-label={label} title={label} className={`relative flex min-w-0 flex-1 items-center justify-center rounded-lg py-2.5 ${active ? 'text-violet-200' : 'text-slate-400 hover:text-white'}`}>
                 <Icon className="h-5 w-5" />
-                {label === 'Notifications' && unreadCount > 0 ? <span className="absolute right-[calc(50%-0.9rem)] top-1 h-2 w-2 rounded-full bg-pink-500" /> : null}
+                {label === 'Notifications' && unreadCount > 0 ? (
+                  <span className="absolute right-[calc(50%-1.25rem)] top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-pink-600 px-1 text-[9px] font-bold leading-none text-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                ) : null}
               </Link>
             );
           })}

@@ -25,17 +25,41 @@ export async function POST(request: Request) {
     });
     const isFollowing = Boolean(existing.rows[0]);
 
+    const countDelta = isFollowing ? -1 : 1;
+    const updateFollowerCount = {
+      sql: `UPDATE users SET followers_override = CASE
+          WHEN followers_override IS NULL THEN NULL
+          ELSE MAX(0, followers_override + ?)
+        END WHERE id = ?`,
+      args: [countDelta, targetId]
+    };
+    const updateFollowingCount = {
+      sql: `UPDATE users SET following_override = CASE
+          WHEN following_override IS NULL THEN NULL
+          ELSE MAX(0, following_override + ?)
+        END WHERE id = ?`,
+      args: [countDelta, user.uid]
+    };
+
     if (isFollowing) {
-      await tursoClient.execute({ sql: 'DELETE FROM follows WHERE follower_id = ? AND following_id = ?', args: [user.uid, targetId] });
+      await tursoClient.batch([
+        { sql: 'DELETE FROM follows WHERE follower_id = ? AND following_id = ?', args: [user.uid, targetId] },
+        updateFollowerCount,
+        updateFollowingCount
+      ], 'write');
     } else {
-      await tursoClient.execute({
-        sql: 'INSERT INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)',
-        args: [user.uid, targetId, new Date().toISOString()]
-      });
-      await tursoClient.execute({
-        sql: 'INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        args: [`follow_${crypto.randomUUID()}`, targetId, user.uid, 'follow', null, new Date().toISOString()]
-      });
+      await tursoClient.batch([
+        {
+          sql: 'INSERT INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)',
+          args: [user.uid, targetId, new Date().toISOString()]
+        },
+        updateFollowerCount,
+        updateFollowingCount,
+        {
+          sql: 'INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+          args: [`follow_${crypto.randomUUID()}`, targetId, user.uid, 'follow', null, new Date().toISOString()]
+        }
+      ], 'write');
     }
 
     return NextResponse.json({ following: !isFollowing });

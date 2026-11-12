@@ -9,13 +9,21 @@ import { getFirebaseAuth } from '@/lib/firebase-client';
 
 type NotificationItem = {
   id: string;
-  type: 'follow' | 'post';
+  type: 'follow' | 'post' | 'like' | 'comment' | 'repost';
   entityId: string | null;
   createdAt: string;
   readAt: string | null;
   actorName: string | null;
   actorUsername: string | null;
   postContent: string | null;
+};
+
+const notificationMessages: Record<NotificationItem['type'], string> = {
+  follow: 'started following you.',
+  post: 'posted a new rant.',
+  like: 'reacted to your rant.',
+  comment: 'commented on your rant.',
+  repost: 'reposted your rant.'
 };
 
 export default function NotificationsPage() {
@@ -115,12 +123,12 @@ export default function NotificationsPage() {
             {isAuthReady && !user ? (
               <div className="mt-6 rounded-xl border border-white/5 bg-slate-950/40 p-5 text-center">
                 <Bell className="mx-auto h-6 w-6 text-violet-300" />
-                <p className="mt-3 text-sm text-slate-300">Log in to see new followers and posts from people you follow.</p>
+                <p className="mt-3 text-sm text-slate-300">Log in to see new followers, reactions, comments, reposts, and posts.</p>
                 <Link href="/auth" className="mt-4 inline-flex rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white">Log in</Link>
               </div>
             ) : null}
             {error ? <p role="alert" className="mt-5 text-sm text-rose-300">{error}</p> : null}
-            {isAuthReady && user && !isLoading && !error && notifications.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No activity yet. New followers and posts from people you follow will appear here.</p> : null}
+            {isAuthReady && user && !isLoading && !error && notifications.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No activity yet. New followers, reactions, comments, reposts, and posts will appear here.</p> : null}
             {user && notifications.length > 0 ? (
               <div className="mt-5 divide-y divide-white/5">
                 {notifications.map((notification) => (
@@ -131,9 +139,9 @@ export default function NotificationsPage() {
                         <Link href={notification.actorUsername ? `/profile/${encodeURIComponent(notification.actorUsername)}` : '/feed'} className="font-semibold text-white hover:text-violet-200">
                           {notification.actorName || 'Someone'}
                         </Link>{' '}
-                        {notification.type === 'follow' ? 'started following you.' : 'posted a new rant.'}
+                        {notificationMessages[notification.type]}
                       </p>
-                      {notification.type === 'post' && notification.postContent ? <p className="mt-1 line-clamp-2 text-sm text-slate-400">{notification.postContent}</p> : null}
+                      {notification.type !== 'follow' && notification.postContent ? <p className="mt-1 line-clamp-2 text-sm text-slate-400">{notification.postContent}</p> : null}
                       <time className="mt-1 block text-xs text-slate-500" dateTime={notification.createdAt}>{new Date(notification.createdAt).toLocaleString()}</time>
                     </div>
                   </article>

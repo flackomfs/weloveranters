@@ -52,8 +52,8 @@ export function Feed() {
   );
 
   return (
-    <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-soft sm:rounded-3xl sm:p-4">
-      <div className="mb-3 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 sm:mb-4 sm:rounded-2xl sm:px-4 sm:py-3">
+    <div className="min-w-0 rounded-none border-0 bg-transparent p-0 shadow-none sm:rounded-3xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-soft">
+      <div className="mb-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 sm:mb-4 sm:rounded-2xl sm:px-4 sm:py-3">
         <span className="text-lg text-slate-400">⌕</span>
         <input
           aria-label="Search"
@@ -66,7 +66,7 @@ export function Feed() {
 
       <PostComposer onPosted={loadPosts} />
 
-      <div className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3">
+      <div className="mt-2 space-y-2 sm:mt-4 sm:space-y-3">
         {isLoading ? <p className="py-8 text-center text-sm text-slate-500">Loading posts...</p> : null}
         {!isLoading && error ? <p role="alert" className="py-8 text-center text-sm text-rose-600">{error}</p> : null}
         {!isLoading && !error && !isAvailable ? <p className="py-8 text-center text-sm text-slate-500">The feed is unavailable because database storage is not configured.</p> : null}
