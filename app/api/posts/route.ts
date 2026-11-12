@@ -41,7 +41,8 @@ export async function GET(request: Request) {
         )
         SELECT e.postId AS id, e.entryId, e.content, e.createdAt, e.authorId AS userId,
           p.likes, u.display_name AS authorName, u.username AS authorUsername,
-          u.avatar_url AS avatarUrl, e.reposterId AS repostedById,
+          u.avatar_url AS avatarUrl, vr.requested_badge AS verificationBadge,
+          e.reposterId AS repostedById,
           COALESCE(ru.display_name, e.reposterName) AS repostedByName,
           COALESCE(ru.username, e.reposterUsername) AS repostedByUsername,
           EXISTS (
@@ -53,6 +54,8 @@ export async function GET(request: Request) {
         FROM feed_entries e
         INNER JOIN posts p ON p.id = e.postId
         LEFT JOIN users u ON u.id = e.authorId
+        LEFT JOIN user_verification_requests vr
+          ON vr.user_id = e.authorId AND vr.status = 'approved'
         LEFT JOIN users ru ON ru.id = e.reposterId
         WHERE (? = '' OR COALESCE(ru.username, e.reposterUsername, u.username) = ?)
           AND (? <> '' OR e.reposterId IS NULL)
@@ -71,6 +74,9 @@ export async function GET(request: Request) {
       comments: Number(row.comments || 0),
       reposts: Number(row.reposts || 0),
       isReposted: Number(row.isReposted) > 0,
+      verificationBadge: isAdminUid(String(row.userId))
+        ? 'moderator'
+        : row.verificationBadge === 'boy' || row.verificationBadge === 'girl' ? row.verificationBadge : null,
       canDelete: Boolean(viewerId && (isAdminUid(viewerId) || String(row.userId) === viewerId))
     }));
 

@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { Heart, MessageCircle, Repeat2, Send, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { getFirebaseAuth } from '@/lib/firebase-client';
+import boysVerifiedBadge from '@/src/images/boys verified.gif';
+import girlsVerifiedBadge from '@/src/images/girls verified.gif';
+import moderatorBadge from '@/src/images/moderator.gif';
 
 export type FeedPost = {
   id: string;
@@ -21,6 +24,7 @@ export type FeedPost = {
   repostedById: string | null;
   repostedByName: string | null;
   repostedByUsername: string | null;
+  verificationBadge: 'boy' | 'girl' | 'moderator' | null;
   isReposted: boolean;
   canDelete: boolean;
 };
@@ -203,6 +207,18 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
                 {post.authorName || 'Member'}
               </Link>
             ) : <p className="font-semibold text-slate-900">{post.authorName || 'Member'}</p>}
+            {post.verificationBadge ? (
+              <Image
+                src={post.verificationBadge === 'moderator'
+                  ? moderatorBadge
+                  : post.verificationBadge === 'boy' ? boysVerifiedBadge : girlsVerifiedBadge}
+                alt={`${post.verificationBadge} verified badge`}
+                width={18}
+                height={18}
+                unoptimized
+                className="h-[18px] w-[18px] shrink-0 object-contain"
+              />
+            ) : null}
             {post.authorUsername ? <Link href={`/profile/${encodeURIComponent(post.authorUsername)}`} className="text-slate-500 hover:text-violet-700">@{post.authorUsername}</Link> : null}
             <span className="text-slate-400">· {new Date(post.createdAt).toLocaleString()}</span>
           </div>
