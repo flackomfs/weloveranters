@@ -292,10 +292,10 @@ export async function PUT(request: Request) {
     const message = error instanceof Error ? error.message : '';
 
     if (message.includes('users.username') || message.includes('users_username_ci_unique')) {
-      return NextResponse.json({ error: 'That username is already taken.' }, { status: 409 });
+      return NextResponse.json({ error: 'Username already taken.' }, { status: 409 });
     }
     if (message.includes('users_display_name_ci_unique')) {
-      return NextResponse.json({ error: 'That display name is already taken.' }, { status: 409 });
+      return NextResponse.json({ error: 'Display name already taken.' }, { status: 409 });
     }
 
     if (message.startsWith('UNIQUE constraint failed: users.email') || message.includes('users.email')) {

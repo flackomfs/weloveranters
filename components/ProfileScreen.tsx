@@ -102,6 +102,7 @@ export function ProfileScreen({ username }: { username?: string }) {
   const [statsForm, setStatsForm] = useState({ followers: '', following: '' });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [profileFieldErrors, setProfileFieldErrors] = useState({ name: '', username: '' });
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const isEditingRef = useRef(false);
 
@@ -212,6 +213,7 @@ export function ProfileScreen({ username }: { username?: string }) {
     setIsSaving(true);
     setMessage('');
     setError('');
+    setProfileFieldErrors({ name: '', username: '' });
     try {
       const token = await firebaseUser.getIdToken();
       const response = await fetch('/api/profile', {
@@ -234,7 +236,14 @@ export function ProfileScreen({ username }: { username?: string }) {
       setIsEditing(false);
       setMessage('Profile saved.');
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Unable to save profile.');
+      const errorMessage = saveError instanceof Error ? saveError.message : 'Unable to save profile.';
+      if (/username.*already taken/i.test(errorMessage)) {
+        setProfileFieldErrors((current) => ({ ...current, username: 'Username already taken.' }));
+      } else if (/display name.*already taken/i.test(errorMessage)) {
+        setProfileFieldErrors((current) => ({ ...current, name: 'Display name already taken.' }));
+      } else {
+        setError(errorMessage);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -384,7 +393,7 @@ export function ProfileScreen({ username }: { username?: string }) {
                     </div>
                   )}
                   {isOwnProfile ? (
-                    <button type="button" onClick={() => { setIsEditing((current) => !current); setMessage(''); setError(''); }} className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+                    <button type="button" onClick={() => { setIsEditing((current) => !current); setMessage(''); setError(''); setProfileFieldErrors({ name: '', username: '' }); }} className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
                       {isEditing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
                       {isEditing ? 'Cancel' : 'Edit profile'}
                     </button>
@@ -477,12 +486,12 @@ export function ProfileScreen({ username }: { username?: string }) {
                   <form onSubmit={handleSave} className="mt-5 space-y-4">
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="text-sm font-medium text-slate-700">Display name
-                        <input required maxLength={80} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value.normalize('NFKC') })} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-300" />
-                        <span className="mt-1 block text-xs font-normal text-slate-400">Display names must be unique; styled Unicode fonts are converted to normal text.</span>
+                        <input required maxLength={80} value={form.name} aria-invalid={Boolean(profileFieldErrors.name)} aria-describedby={profileFieldErrors.name ? 'display-name-error' : undefined} onChange={(event) => { setForm({ ...form, name: event.target.value.normalize('NFKC') }); setProfileFieldErrors((current) => ({ ...current, name: '' })); }} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-300" />
+                        {profileFieldErrors.name ? <span id="display-name-error" role="alert" className="mt-1 block text-xs font-normal text-rose-600">{profileFieldErrors.name}</span> : null}
                       </label>
                       <label className="text-sm font-medium text-slate-700">@Username
-                        <input required minLength={3} maxLength={32} pattern="[a-zA-Z0-9._-]+" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.normalize('NFKC').toLowerCase() })} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-300" />
-                        <span className="mt-1 block text-xs font-normal text-slate-400">3-32 characters: letters, numbers, periods, underscores, and hyphens.</span>
+                        <input required minLength={3} maxLength={32} pattern="[a-zA-Z0-9._-]+" value={form.username} aria-invalid={Boolean(profileFieldErrors.username)} aria-describedby={profileFieldErrors.username ? 'username-error' : undefined} onChange={(event) => { setForm({ ...form, username: event.target.value.normalize('NFKC').toLowerCase() }); setProfileFieldErrors((current) => ({ ...current, username: '' })); }} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-300" />
+                        {profileFieldErrors.username ? <span id="username-error" role="alert" className="mt-1 block text-xs font-normal text-rose-600">{profileFieldErrors.username}</span> : null}
                       </label>
                     </div>
 
@@ -523,7 +532,7 @@ export function ProfileScreen({ username }: { username?: string }) {
                     </div>
 
                     <div className="flex items-center justify-end gap-3">
-                      <button type="button" onClick={() => setIsEditing(false)} className="rounded-full px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
+                      <button type="button" onClick={() => { setIsEditing(false); setProfileFieldErrors({ name: '', username: '' }); }} className="rounded-full px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
                       <button type="submit" disabled={isSaving} className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-60">
                         <Save className="h-4 w-4" />{isSaving ? 'Saving...' : 'Save profile'}
                       </button>
