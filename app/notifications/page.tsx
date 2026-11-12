@@ -9,7 +9,7 @@ import { getFirebaseAuth } from '@/lib/firebase-client';
 
 type NotificationItem = {
   id: string;
-  type: 'follow' | 'unfollow' | 'post' | 'like' | 'comment' | 'repost';
+  type: 'follow' | 'unfollow' | 'post' | 'like' | 'comment' | 'repost' | 'mention';
   entityId: string | null;
   createdAt: string;
   readAt: string | null;
@@ -24,7 +24,8 @@ const notificationMessages: Record<NotificationItem['type'], string> = {
   post: 'posted a new rant.',
   like: 'reacted to your rant.',
   comment: 'commented on your rant.',
-  repost: 'reposted your rant.'
+  repost: 'reposted your rant.',
+  mention: 'mentioned you in a post or comment.'
 };
 
 export default function NotificationsPage() {

@@ -52,7 +52,8 @@ export async function initTursoSchema() {
           author_name TEXT NOT NULL,
           author_username TEXT NOT NULL,
           content TEXT NOT NULL,
-          created_at TEXT NOT NULL
+          created_at TEXT NOT NULL,
+          parent_comment_id TEXT
         );
       `);
 
@@ -116,8 +117,52 @@ export async function initTursoSchema() {
         );
       `);
 
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS blocked_users (
+          blocker_id TEXT NOT NULL,
+          blocked_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (blocker_id, blocked_id),
+          CHECK (blocker_id <> blocked_id)
+        );
+      `);
+
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS post_reports (
+          id TEXT PRIMARY KEY,
+          post_id TEXT NOT NULL,
+          reporter_id TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          details TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL CHECK (status IN ('pending', 'reviewed', 'dismissed')),
+          created_at TEXT NOT NULL,
+          reviewed_at TEXT,
+          reviewed_by TEXT,
+          UNIQUE (post_id, reporter_id)
+        );
+      `);
+
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS post_drafts (
+          user_id TEXT PRIMARY KEY,
+          content TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS notification_preferences (
+          user_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          PRIMARY KEY (user_id, type)
+        );
+      `);
+
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS notifications_recipient_created_idx ON notifications (recipient_id, created_at);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS user_verification_requests_status_created_idx ON user_verification_requests (status, created_at);');
+      await tursoClient.execute('CREATE INDEX IF NOT EXISTS blocked_users_blocked_idx ON blocked_users (blocked_id, blocker_id);');
+      await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_reports_status_created_idx ON post_reports (status, created_at);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_hashtags_created_at_idx ON post_hashtags (created_at);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_comments_post_created_idx ON post_comments (post_id, created_at);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_reposts_post_created_idx ON post_reposts (post_id, created_at);');
@@ -135,6 +180,16 @@ export async function initTursoSchema() {
       }
       if (!existingColumns.has('following_override')) {
         await tursoClient.execute('ALTER TABLE users ADD COLUMN following_override INTEGER');
+      }
+
+      const postColumns = await tursoClient.execute('PRAGMA table_info(posts)');
+      if (!postColumns.rows.some((row) => String(row.name) === 'updated_at')) {
+        await tursoClient.execute('ALTER TABLE posts ADD COLUMN updated_at TEXT');
+      }
+
+      const commentColumns = await tursoClient.execute('PRAGMA table_info(post_comments)');
+      if (!commentColumns.rows.some((row) => String(row.name) === 'parent_comment_id')) {
+        await tursoClient.execute('ALTER TABLE post_comments ADD COLUMN parent_comment_id TEXT');
       }
     })().catch((error) => {
       schemaPromise = null;

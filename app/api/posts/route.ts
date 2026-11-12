@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isAdminUid } from '@/lib/admin';
 import { verifyIdToken } from '@/lib/firebase';
+import { mentionNotificationStatements, notificationStatement } from '@/lib/notifications';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
 function getBearerToken(request: Request) {
@@ -26,7 +27,10 @@ export async function GET(request: Request) {
   try {
     await initTursoSchema();
     const viewerId = await getViewerId(request);
-    const username = new URL(request.url).searchParams.get('username')?.toLowerCase() || '';
+    const searchParams = new URL(request.url).searchParams;
+    const username = searchParams.get('username')?.toLowerCase() || '';
+    const requestedSort = searchParams.get('sort');
+    const sort = requestedSort === 'popular' || requestedSort === 'following' ? requestedSort : 'latest';
     const result = await tursoClient.execute({
       sql: `WITH feed_entries AS (
           SELECT p.id AS postId, p.id AS entryId, p.content, p.created_at AS createdAt,
@@ -40,7 +44,7 @@ export async function GET(request: Request) {
           INNER JOIN posts p ON p.id = r.post_id
         )
         SELECT e.postId AS id, e.entryId, e.content, e.createdAt, e.authorId AS userId,
-          p.likes, u.display_name AS authorName, u.username AS authorUsername,
+          p.likes, p.updated_at AS updatedAt, u.display_name AS authorName, u.username AS authorUsername,
           u.avatar_url AS avatarUrl, vr.requested_badge AS verificationBadge,
           e.reposterId AS repostedById,
           COALESCE(ru.display_name, e.reposterName) AS repostedByName,
@@ -59,9 +63,17 @@ export async function GET(request: Request) {
         LEFT JOIN users ru ON ru.id = e.reposterId
         WHERE (? = '' OR COALESCE(ru.username, e.reposterUsername, u.username) = ?)
           AND (? <> '' OR e.reposterId IS NULL)
-        ORDER BY e.createdAt DESC
+          AND (? = '' OR NOT EXISTS (
+            SELECT 1 FROM blocked_users b
+            WHERE (b.blocker_id = ? AND b.blocked_id IN (e.authorId, e.reposterId))
+              OR (b.blocked_id = ? AND b.blocker_id IN (e.authorId, e.reposterId))
+          ))
+          AND (? <> 'following' OR e.authorId = ? OR EXISTS (
+            SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = e.authorId
+          ))
+        ORDER BY CASE WHEN ? = 'popular' THEN p.likes END DESC, e.createdAt DESC
         LIMIT 100`,
-      args: [viewerId, username, username, username]
+      args: [viewerId, username, username, username, viewerId, viewerId, viewerId, sort, viewerId, viewerId, sort]
     });
 
     const posts = result.rows.map((row) => ({
@@ -77,7 +89,9 @@ export async function GET(request: Request) {
       verificationBadge: isAdminUid(String(row.userId))
         ? 'moderator'
         : row.verificationBadge === 'boy' || row.verificationBadge === 'girl' ? row.verificationBadge : null,
-      canDelete: Boolean(viewerId && (isAdminUid(viewerId) || String(row.userId) === viewerId))
+      canDelete: Boolean(viewerId && (isAdminUid(viewerId) || String(row.userId) === viewerId)),
+      canEdit: Boolean(viewerId && String(row.userId) === viewerId && Date.now() - Date.parse(String(row.createdAt)) < 15 * 60 * 1000),
+      canReport: Boolean(viewerId && String(row.userId) !== viewerId)
     }));
 
     return NextResponse.json({ posts, available: true }, { headers: { 'Cache-Control': 'no-store' } });
@@ -92,8 +106,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     const content = typeof body?.content === 'string' ? body.content.trim() : '';
 
-    if (!content) {
-      return NextResponse.json({ error: 'Content is required.' }, { status: 400 });
+    if (!content || content.length > 2000) {
+      return NextResponse.json({ error: 'Posts must be between 1 and 2000 characters.' }, { status: 400 });
     }
 
     if (!tursoClient) {
@@ -128,8 +142,8 @@ export async function POST(request: Request) {
     const createdAt = new Date().toISOString();
     const id = `rant_${crypto.randomUUID()}`;
     await tursoClient.execute({
-      sql: 'INSERT INTO posts (id, user_id, content, created_at) VALUES (?, ?, ?, ?)',
-      args: [id, user.uid, content, createdAt]
+      sql: 'INSERT INTO posts (id, user_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      args: [id, user.uid, content, createdAt, createdAt]
     });
 
     const hashtags: string[] = [];
@@ -145,15 +159,25 @@ export async function POST(request: Request) {
     }
 
     const followers = await tursoClient.execute({
-      sql: 'SELECT follower_id FROM follows WHERE following_id = ?',
+      sql: `SELECT f.follower_id FROM follows f
+        WHERE f.following_id = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM blocked_users b
+            WHERE (b.blocker_id = f.follower_id AND b.blocked_id = f.following_id)
+              OR (b.blocker_id = f.following_id AND b.blocked_id = f.follower_id)
+          )`,
       args: [user.uid]
     });
-    for (const follower of followers.rows) {
-      await tursoClient.execute({
-        sql: 'INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        args: [`post_${crypto.randomUUID()}`, String(follower.follower_id), user.uid, 'post', id, createdAt]
-      });
-    }
+    const notificationStatements = followers.rows.map((follower) => notificationStatement({
+      id: `post_${crypto.randomUUID()}`,
+      recipientId: String(follower.follower_id),
+      actorId: user.uid,
+      type: 'post',
+      entityId: id,
+      createdAt
+    }));
+    notificationStatements.push(...await mentionNotificationStatements(tursoClient, content, user.uid, id, createdAt));
+    if (notificationStatements.length) await tursoClient.batch(notificationStatements, 'write');
 
     return NextResponse.json({ ok: true, message: 'Rant created successfully.', post: { id, content, createdAt, userId: user.uid } });
   } catch (error) {

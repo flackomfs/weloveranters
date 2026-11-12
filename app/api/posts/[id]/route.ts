@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isAdminUid } from '@/lib/admin';
 import { verifyIdToken } from '@/lib/firebase';
+import { mentionNotificationStatements, notificationStatement } from '@/lib/notifications';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
 type RouteContext = { params: { id: string } };
@@ -32,7 +33,8 @@ export async function GET(_request: Request, { params }: RouteContext) {
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
 
     const result = await tursoClient.execute({
-      sql: `SELECT c.id, c.content, c.created_at AS createdAt, c.user_id AS userId,
+      sql: `SELECT c.id, c.content, c.parent_comment_id AS parentCommentId,
+          c.created_at AS createdAt, c.user_id AS userId,
           COALESCE(u.display_name, c.author_name) AS authorName,
           COALESCE(u.username, c.author_username) AS authorUsername,
           u.avatar_url AS avatarUrl
@@ -75,6 +77,12 @@ export async function POST(request: Request, { params }: RouteContext) {
     const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [params.id] });
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
     const postAuthorId = String(post.rows[0].user_id);
+    const blocked = await tursoClient.execute({
+      sql: `SELECT 1 FROM blocked_users
+        WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)`,
+      args: [user.uid, postAuthorId, postAuthorId, user.uid]
+    });
+    if (blocked.rows[0]) return NextResponse.json({ error: 'You cannot interact with this post because one account has blocked the other.' }, { status: 403 });
 
     const rawBody = await request.json();
     if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
@@ -84,14 +92,14 @@ export async function POST(request: Request, { params }: RouteContext) {
     const action = typeof body.action === 'string' ? body.action : '';
 
     if (action === 'like') {
-      const statements = [
+      const statements: Array<{ sql: string; args: (string | number | null)[] }> = [
         { sql: 'UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id = ?', args: [params.id] }
       ];
       if (postAuthorId !== user.uid) {
-        statements.push({
-          sql: 'INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          args: [`like_${crypto.randomUUID()}`, postAuthorId, user.uid, 'like', params.id, new Date().toISOString()]
-        });
+        statements.push(notificationStatement({
+          id: `like_${crypto.randomUUID()}`, recipientId: postAuthorId, actorId: user.uid,
+          type: 'like', entityId: params.id, createdAt: new Date().toISOString()
+        }));
       }
       statements.push({ sql: 'SELECT likes FROM posts WHERE id = ?', args: [params.id] });
       const results = await tursoClient.batch(statements, 'write');
@@ -104,6 +112,18 @@ export async function POST(request: Request, { params }: RouteContext) {
       if (!content || content.length > 500) {
         return NextResponse.json({ error: 'Comments must be between 1 and 500 characters.' }, { status: 400 });
       }
+      const parentCommentId = typeof body.parentCommentId === 'string' ? body.parentCommentId : null;
+      let parentAuthorId = '';
+      if (parentCommentId) {
+        const parent = await tursoClient.execute({
+          sql: 'SELECT user_id, parent_comment_id FROM post_comments WHERE id = ? AND post_id = ?',
+          args: [parentCommentId, params.id]
+        });
+        if (!parent.rows[0] || parent.rows[0].parent_comment_id) {
+          return NextResponse.json({ error: 'Replies must be attached to a top-level comment.' }, { status: 400 });
+        }
+        parentAuthorId = String(parent.rows[0].user_id);
+      }
 
       const comment = {
         id: `comment_${crypto.randomUUID()}`,
@@ -112,29 +132,37 @@ export async function POST(request: Request, { params }: RouteContext) {
         authorName: actor.name,
         authorUsername: actor.username,
         content,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        parentCommentId
       };
-      const statements = [
+      const statements: Array<{ sql: string; args: (string | number | null)[] }> = [
         {
           sql: `INSERT INTO post_comments
-            (id, post_id, user_id, author_name, author_username, content, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          args: [comment.id, comment.postId, comment.userId, comment.authorName, comment.authorUsername, comment.content, comment.createdAt]
+            (id, post_id, user_id, author_name, author_username, content, created_at, parent_comment_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [comment.id, comment.postId, comment.userId, comment.authorName, comment.authorUsername, comment.content, comment.createdAt, parentCommentId]
         }
       ];
       if (postAuthorId !== user.uid) {
-        statements.push({
-          sql: 'INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          args: [`comment_${crypto.randomUUID()}`, postAuthorId, user.uid, 'comment', params.id, comment.createdAt]
-        });
+        statements.push(notificationStatement({
+          id: `comment_${crypto.randomUUID()}`, recipientId: postAuthorId, actorId: user.uid,
+          type: 'comment', entityId: params.id, createdAt: comment.createdAt
+        }));
       }
+      if (parentAuthorId && parentAuthorId !== user.uid && parentAuthorId !== postAuthorId) {
+        statements.push(notificationStatement({
+          id: `comment_reply_${crypto.randomUUID()}`, recipientId: parentAuthorId, actorId: user.uid,
+          type: 'comment', entityId: params.id, createdAt: comment.createdAt
+        }));
+      }
+      statements.push(...await mentionNotificationStatements(tursoClient, content, user.uid, params.id, comment.createdAt));
       statements.push({ sql: 'SELECT COUNT(*) AS count FROM post_comments WHERE post_id = ?', args: [params.id] });
       const results = await tursoClient.batch(statements, 'write');
       return NextResponse.json({ comment, comments: Number(results[results.length - 1].rows[0]?.count || 0) });
     }
 
     if (action === 'repost') {
-      const statements = [
+      const statements: Array<{ sql: string; args: (string | number | null)[] }> = [
         {
           sql: `INSERT INTO post_reposts (user_id, post_id, author_name, author_username, created_at)
             VALUES (?, ?, ?, ?, ?)
@@ -143,10 +171,13 @@ export async function POST(request: Request, { params }: RouteContext) {
         }
       ];
       if (postAuthorId !== user.uid) {
+        const notification = notificationStatement({
+          id: `repost_${crypto.randomUUID()}`, recipientId: postAuthorId, actorId: user.uid,
+          type: 'repost', entityId: params.id, createdAt: new Date().toISOString()
+        });
         statements.push({
-          sql: `INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at)
-            SELECT ?, ?, ?, ?, ?, ? WHERE changes() > 0`,
-          args: [`repost_${crypto.randomUUID()}`, postAuthorId, user.uid, 'repost', params.id, new Date().toISOString()]
+          ...notification,
+          sql: `${notification.sql} AND changes() > 0`
         });
       }
       statements.push({ sql: 'SELECT COUNT(*) AS count FROM post_reposts WHERE post_id = ?', args: [params.id] });
@@ -158,6 +189,55 @@ export async function POST(request: Request, { params }: RouteContext) {
   } catch (error) {
     console.error('Unable to update post:', error instanceof Error ? error.message : 'Unknown database error');
     return NextResponse.json({ error: 'Unable to update post.' }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request, { params }: RouteContext) {
+  if (!tursoClient) return NextResponse.json({ error: 'Post storage is unavailable.' }, { status: 503 });
+  try {
+    await initTursoSchema();
+    const token = getBearerToken(request);
+    if (!token) return NextResponse.json({ error: 'Sign in to edit posts.' }, { status: 401 });
+    let user;
+    try {
+      user = await verifyIdToken(token);
+    } catch {
+      return NextResponse.json({ error: 'Your session expired. Sign in again.' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const content = typeof body?.content === 'string' ? body.content.trim() : '';
+    if (!content || content.length > 2000) {
+      return NextResponse.json({ error: 'Posts must be between 1 and 2000 characters.' }, { status: 400 });
+    }
+
+    const post = await tursoClient.execute({
+      sql: 'SELECT user_id, created_at FROM posts WHERE id = ?',
+      args: [params.id]
+    });
+    if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
+    if (String(post.rows[0].user_id) !== user.uid) return NextResponse.json({ error: 'You can only edit your own posts.' }, { status: 403 });
+    const createdAt = Date.parse(String(post.rows[0].created_at));
+    if (!Number.isFinite(createdAt) || Date.now() - createdAt > 15 * 60 * 1000) {
+      return NextResponse.json({ error: 'Posts can only be edited within 15 minutes of posting.' }, { status: 409 });
+    }
+
+    const updatedAt = new Date().toISOString();
+    const matches = content.match(/#[a-zA-Z0-9_]+/g) || [];
+    const hashtags = Array.from(new Set(matches.map((tag: string) => tag.slice(1).toLowerCase())));
+    const statements = [
+      { sql: 'UPDATE posts SET content = ?, updated_at = ? WHERE id = ?', args: [content, updatedAt, params.id] },
+      { sql: 'DELETE FROM post_hashtags WHERE post_id = ?', args: [params.id] },
+      ...hashtags.map((hashtag) => ({
+        sql: 'INSERT INTO post_hashtags (hashtag, post_id, created_at) VALUES (?, ?, ?)',
+        args: [hashtag, params.id, updatedAt]
+      }))
+    ];
+    await tursoClient.batch(statements, 'write');
+    return NextResponse.json({ content, updatedAt });
+  } catch (error) {
+    console.error('Unable to edit post:', error instanceof Error ? error.message : 'Unknown error');
+    return NextResponse.json({ error: 'Unable to edit post.' }, { status: 500 });
   }
 }
 
@@ -186,6 +266,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
       { sql: 'DELETE FROM post_comments WHERE post_id = ?', args: [params.id] },
       { sql: 'DELETE FROM post_reposts WHERE post_id = ?', args: [params.id] },
       { sql: 'DELETE FROM post_hashtags WHERE post_id = ?', args: [params.id] },
+      { sql: 'DELETE FROM post_reports WHERE post_id = ?', args: [params.id] },
       { sql: 'DELETE FROM notifications WHERE entity_id = ?', args: [params.id] },
       { sql: 'DELETE FROM posts WHERE id = ?', args: [params.id] }
     ], 'write');

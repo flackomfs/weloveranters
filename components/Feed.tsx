@@ -9,6 +9,7 @@ import { getFirebaseAuth } from '@/lib/firebase-client';
 export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [user, setUser] = useState<User | null>(null);
+  const [sort, setSort] = useState<'latest' | 'popular' | 'following'>('latest');
   const [isLoading, setIsLoading] = useState(true);
   const [isAvailable, setIsAvailable] = useState(true);
   const [error, setError] = useState('');
@@ -23,7 +24,7 @@ export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
   const loadPosts = useCallback(async () => {
     try {
       const token = user ? await user.getIdToken() : '';
-      const response = await fetch('/api/posts', {
+      const response = await fetch(`/api/posts?sort=${sort}`, {
         cache: 'no-store',
         headers: token ? { Authorization: `Bearer ${token}` } : undefined
       });
@@ -37,7 +38,7 @@ export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
     } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  }, [sort, user]);
 
   useEffect(() => {
     void loadPosts();
@@ -68,13 +69,30 @@ export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
         </div>
       ) : null}
 
+      <nav aria-label="Feed filter" className="mb-2 flex gap-2 overflow-x-auto sm:mb-3">
+        {(['latest', 'popular', 'following'] as const).map((filter) => (
+          <button
+            key={filter}
+            type="button"
+            aria-pressed={sort === filter}
+            onClick={() => setSort(filter)}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 ${
+              sort === filter ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-violet-50'
+            }`}
+          >
+            {filter}
+          </button>
+        ))}
+      </nav>
+
       <PostComposer onPosted={loadPosts} />
 
       <div className="mt-2 space-y-2 sm:mt-4 sm:space-y-3">
         {isLoading ? <p className="py-8 text-center text-sm text-slate-500">Loading posts...</p> : null}
         {!isLoading && error ? <p role="alert" className="py-8 text-center text-sm text-rose-600">{error}</p> : null}
         {!isLoading && !error && !isAvailable ? <p className="py-8 text-center text-sm text-slate-500">The feed is unavailable because database storage is not configured.</p> : null}
-        {!isLoading && !error && isAvailable && posts.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No rants yet. Be the first to share one.</p> : null}
+        {!isLoading && !error && sort === 'following' && !user ? <p className="py-8 text-center text-sm text-slate-500">Sign in to see posts from people you follow.</p> : null}
+        {!isLoading && !error && isAvailable && posts.length === 0 && !(sort === 'following' && !user) ? <p className="py-8 text-center text-sm text-slate-500">No rants yet. Be the first to share one.</p> : null}
         {!isLoading && !error && posts.length > 0 && filteredPosts.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No rants match your search.</p> : null}
         {filteredPosts.map((post) => <PostCard key={post.entryId} post={post} onChanged={() => void loadPosts()} />)}
       </div>

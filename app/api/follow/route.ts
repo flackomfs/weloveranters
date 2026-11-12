@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifyIdToken } from '@/lib/firebase';
+import { notificationStatement } from '@/lib/notifications';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
 export async function POST(request: Request) {
@@ -18,6 +19,12 @@ export async function POST(request: Request) {
 
     const target = await tursoClient.execute({ sql: 'SELECT id FROM users WHERE id = ?', args: [targetId] });
     if (!target.rows[0]) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
+    const block = await tursoClient.execute({
+      sql: `SELECT 1 FROM blocked_users
+        WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)`,
+      args: [user.uid, targetId, targetId, user.uid]
+    });
+    if (block.rows[0]) return NextResponse.json({ error: 'You cannot follow a user while either account has blocked the other.' }, { status: 403 });
 
     const existing = await tursoClient.execute({
       sql: 'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?',
@@ -46,10 +53,10 @@ export async function POST(request: Request) {
         { sql: 'DELETE FROM follows WHERE follower_id = ? AND following_id = ?', args: [user.uid, targetId] },
         updateFollowerCount,
         updateFollowingCount,
-        {
-          sql: 'INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          args: [`unfollow_${crypto.randomUUID()}`, targetId, user.uid, 'unfollow', null, new Date().toISOString()]
-        }
+        notificationStatement({
+          id: `unfollow_${crypto.randomUUID()}`, recipientId: targetId, actorId: user.uid,
+          type: 'unfollow', entityId: null, createdAt: new Date().toISOString()
+        })
       ], 'write');
     } else {
       await tursoClient.batch([
@@ -59,10 +66,10 @@ export async function POST(request: Request) {
         },
         updateFollowerCount,
         updateFollowingCount,
-        {
-          sql: 'INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          args: [`follow_${crypto.randomUUID()}`, targetId, user.uid, 'follow', null, new Date().toISOString()]
-        }
+        notificationStatement({
+          id: `follow_${crypto.randomUUID()}`, recipientId: targetId, actorId: user.uid,
+          type: 'follow', entityId: null, createdAt: new Date().toISOString()
+        })
       ], 'write');
     }
 

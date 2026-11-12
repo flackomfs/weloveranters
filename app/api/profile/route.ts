@@ -46,7 +46,7 @@ function getBearerToken(request: Request) {
 async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewerId: string | null) {
   if (!tursoClient) return profile;
 
-  const [counts, verification, isFollowing] = await Promise.all([
+  const [counts, verification, isFollowing, blockState] = await Promise.all([
     tursoClient.execute({
       sql: `SELECT
         (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers,
@@ -63,6 +63,14 @@ async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewer
         sql: 'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?',
         args: [viewerId, profile.id]
       })
+      : Promise.resolve(null),
+    viewerId && viewerId !== profile.id
+      ? tursoClient.execute({
+        sql: `SELECT
+          EXISTS (SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?) AS viewerBlocked,
+          EXISTS (SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?) AS blockedViewer`,
+        args: [viewerId, profile.id, profile.id, viewerId]
+      })
       : Promise.resolve(null)
   ]);
   const isAdmin = isAdminUid(profile.id);
@@ -73,6 +81,8 @@ async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewer
     followers: profile.followersOverride ?? Number(counts.rows[0]?.followers || 0),
     following: profile.followingOverride ?? Number(counts.rows[0]?.following || 0),
     isFollowing: Boolean(isFollowing?.rows[0]),
+    viewerBlocked: Number(blockState?.rows[0]?.viewerBlocked || 0) > 0,
+    blockedViewer: Number(blockState?.rows[0]?.blockedViewer || 0) > 0,
     canManageStats: Boolean(viewerId && isAdminUid(viewerId)),
     verificationBadge: isAdmin ? 'moderator' : requestedBadge === 'boy' || requestedBadge === 'girl' ? requestedBadge : null
   };

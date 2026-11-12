@@ -25,7 +25,18 @@ export async function GET(request: Request) {
         FROM notifications n
         LEFT JOIN users a ON a.id = n.actor_id
         LEFT JOIN posts p ON p.id = n.entity_id
+        LEFT JOIN notification_preferences np
+          ON np.user_id = n.recipient_id
+          AND np.type = CASE
+            WHEN n.type IN ('follow', 'unfollow') THEN 'follows'
+            WHEN n.type = 'post' THEN 'posts'
+            WHEN n.type = 'like' THEN 'reactions'
+            WHEN n.type = 'comment' THEN 'comments'
+            WHEN n.type = 'repost' THEN 'reposts'
+            WHEN n.type = 'mention' THEN 'mentions'
+          END
         WHERE n.recipient_id = ?
+          AND COALESCE(np.enabled, 1) = 1
         ORDER BY n.created_at DESC
         LIMIT 100`,
       args: [userId]

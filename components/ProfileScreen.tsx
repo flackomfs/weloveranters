@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { ArrowLeft, ExternalLink, Pencil, Save, X } from 'lucide-react';
+import { ArrowLeft, Ban, ExternalLink, Pencil, Save, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { getFirebaseAuth } from '@/lib/firebase-client';
 import { Sidebar } from '@/components/Sidebar';
@@ -37,6 +37,8 @@ type Profile = {
   followingOverride: number | null;
   canManageStats: boolean;
   verificationBadge: 'boy' | 'girl' | 'moderator' | null;
+  viewerBlocked: boolean;
+  blockedViewer: boolean;
 };
 
 const socialFields: Array<{ key: keyof SocialLinks; label: string }> = [
@@ -94,6 +96,7 @@ export function ProfileScreen({ username }: { username?: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isFollowingSaving, setIsFollowingSaving] = useState(false);
+  const [isBlockingSaving, setIsBlockingSaving] = useState(false);
   const [isEditingStats, setIsEditingStats] = useState(false);
   const [isSavingStats, setIsSavingStats] = useState(false);
   const [statsForm, setStatsForm] = useState({ followers: '', following: '' });
@@ -262,6 +265,29 @@ export function ProfileScreen({ username }: { username?: string }) {
     }
   }
 
+  async function handleBlock() {
+    if (!firebaseUser || !profile || profile.blockedViewer) return;
+    const shouldUnblock = profile.viewerBlocked;
+    if (!shouldUnblock && !window.confirm(`Block @${profile.username}? You will no longer see each other's posts or be able to follow/interact.`)) return;
+    setIsBlockingSaving(true);
+    setError('');
+    try {
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch('/api/blocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ targetId: profile.id })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Unable to ${shouldUnblock ? 'unblock' : 'block'} user.`);
+      await loadProfile(firebaseUser);
+    } catch (blockError) {
+      setError(blockError instanceof Error ? blockError.message : `Unable to ${shouldUnblock ? 'unblock' : 'block'} user.`);
+    } finally {
+      setIsBlockingSaving(false);
+    }
+  }
+
   async function handleSaveStats(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!firebaseUser || !profile?.canManageStats) return;
@@ -362,13 +388,27 @@ export function ProfileScreen({ username }: { username?: string }) {
                       {isEditing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
                       {isEditing ? 'Cancel' : 'Edit profile'}
                     </button>
-                  ) : isProfileOwner ? null : firebaseUser ? (
+                  ) : isProfileOwner ? null : firebaseUser && !profile.viewerBlocked && !profile.blockedViewer ? (
                     <button type="button" onClick={handleFollow} disabled={isFollowingSaving} className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60">
                       {isFollowingSaving ? 'Updating...' : profile.isFollowing ? 'Following' : 'Follow'}
                     </button>
+                  ) : firebaseUser ? (
+                    <span className="text-xs text-slate-500">{profile.blockedViewer ? 'This user has blocked you.' : 'You blocked this user.'}</span>
                   ) : (
                     <Link href="/auth" className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white">Log in to follow</Link>
                   )}
+                  {!isOwnProfile && firebaseUser && !isProfileOwner && !profile.blockedViewer ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleBlock()}
+                      disabled={isBlockingSaving}
+                      aria-label={profile.viewerBlocked ? `Unblock ${profile.name}` : `Block ${profile.name}`}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50"
+                    >
+                      <Ban className="h-4 w-4" />
+                      {isBlockingSaving ? 'Updating...' : profile.viewerBlocked ? 'Unblock' : 'Block'}
+                    </button>
+                  ) : null}
                 </div>
 
                 {!isEditing ? (
@@ -496,7 +536,9 @@ export function ProfileScreen({ username }: { username?: string }) {
 
             <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-soft">
               <h2 className="mb-5 text-xl font-bold">Recent rants</h2>
-              {posts.length ? (
+              {profile.viewerBlocked || profile.blockedViewer ? (
+                <p className="text-sm text-slate-500">Posts are hidden because one account has blocked the other.</p>
+              ) : posts.length ? (
                 <div className="space-y-4">
                   {posts.map((post) => (
                     <PostCard
