@@ -4,10 +4,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'WeLoveRanters',
-  description: 'A social venting platform where users can share their unfiltered thoughts and support each other.',
-  icons: {
-    icon: '/favicon.png'
-  }
+  description: 'A social venting platform where users can share their unfiltered thoughts and support each other.'
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
