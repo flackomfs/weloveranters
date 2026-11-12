@@ -1,103 +1,115 @@
-"use client";
+'use client';
 
 import Image from 'next/image';
-import { onAuthStateChanged, type User } from 'firebase/auth';
-import { useEffect, useState, type FormEvent } from 'react';
-import { getFirebaseAuth } from '@/lib/firebase-client';
+import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
 
-export function PostComposer({ onPosted }: { onPosted: () => void }) {
-  const [content, setContent] = useState('');
-  const [message, setMessage] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+import { PostComposer } from '@/components/PostComposer';
 
-  useEffect(() => {
-    const auth = getFirebaseAuth();
-    if (!auth) {
-      setIsAuthReady(true);
-      return;
+type FeedPost = {
+  id: string;
+  content: string;
+  createdAt: string;
+  likes: number;
+  comments: number;
+  reposts: number;
+  authorName: string | null;
+  authorUsername: string | null;
+  avatarUrl: string | null;
+  tags: string[];
+};
+
+export function Feed() {
+  const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAvailable, setIsAvailable] = useState(true);
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+
+  const loadPosts = useCallback(async () => {
+    try {
+      const response = await fetch('/api/posts', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to load posts.');
+      setPosts(data.posts);
+      setIsAvailable(data.available);
+      setError('');
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Unable to load posts.');
+    } finally {
+      setIsLoading(false);
     }
-
-    return onAuthStateChanged(auth, (nextUser) => {
-      setUser(nextUser);
-      setIsAuthReady(true);
-    });
   }, []);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  useEffect(() => {
+    void loadPosts();
+    const intervalId = window.setInterval(() => void loadPosts(), 3000);
+    return () => window.clearInterval(intervalId);
+  }, [loadPosts]);
 
-    if (!user) {
-      setMessage('Please log in to start posting.');
-      return;
-    }
-
-    if (!content.trim()) {
-      setMessage('Write something before posting.');
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      const token = await user.getIdToken();
-      const response = await fetch('/api/posts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ content })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Unable to post rant.');
-      }
-
-      setContent('');
-      setMessage(data.message || 'Your rant is live.');
-      onPosted();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Something went wrong.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredPosts = posts.filter((post) =>
+    [post.content, post.authorName, post.authorUsername, ...post.tags]
+      .some((value) => value?.toLowerCase().includes(normalizedQuery))
+  );
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-      <div className="mb-2 flex items-center gap-2.5">
-        {user?.photoURL ? (
-          <Image src={user.photoURL} alt="" width={36} height={36} unoptimized className="h-9 w-9 rounded-full object-cover" />
-        ) : (
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-pink-500 text-xs font-bold text-white">
-            {(user?.displayName || user?.email || 'U').slice(0, 1).toUpperCase()}
-          </div>
-        )}
-        <p className="text-xs font-medium text-slate-700 sm:text-sm">{user?.displayName || user?.email || 'Share a rant'}</p>
+    <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-soft sm:rounded-3xl sm:p-4">
+      <div className="mb-3 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 sm:mb-4 sm:rounded-2xl sm:px-4 sm:py-3">
+        <span className="text-lg text-slate-400">⌕</span>
+        <input
+          aria-label="Search"
+          placeholder="Search topics, people, or emotions"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          className="w-full border-0 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+        />
       </div>
 
-      <textarea
-        value={content}
-        onChange={(event) => setContent(event.target.value)}
-        placeholder={!user ? 'Log in to start posting your rant.' : 'What is weighing on your mind today?'}
-        rows={3}
-        disabled={!isAuthReady || !user}
-        className="w-full resize-none rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-800 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:cursor-not-allowed disabled:bg-slate-100"
-      />
+      <PostComposer onPosted={loadPosts} />
 
-      <div className="mt-3 flex items-center justify-between gap-3">
-        <p className="text-[10px] text-slate-500 sm:text-xs">{!user ? 'You need to sign in before posting.' : 'Keep it honest, kind, and respectful.'}</p>
-        <button
-          type="submit"
-          disabled={!isAuthReady || !user || isSubmitting}
-          className="rounded-full bg-violet-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-50 sm:px-4 sm:text-sm"
-        >
-          {!user ? 'Login to post' : isSubmitting ? 'Posting...' : 'Post rant'}
-        </button>
+      <div className="mt-3 space-y-2.5 sm:mt-4 sm:space-y-3">
+        {isLoading ? <p className="py-8 text-center text-sm text-slate-500">Loading posts...</p> : null}
+        {!isLoading && error ? <p role="alert" className="py-8 text-center text-sm text-rose-600">{error}</p> : null}
+        {!isLoading && !error && !isAvailable ? <p className="py-8 text-center text-sm text-slate-500">The feed is unavailable because database storage is not configured.</p> : null}
+        {!isLoading && !error && isAvailable && posts.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No rants yet. Be the first to share one.</p> : null}
+        {!isLoading && !error && posts.length > 0 && filteredPosts.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No rants match your search.</p> : null}
+        {filteredPosts.map((post) => (
+          <article key={post.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-2.5 sm:rounded-3xl sm:p-3">
+            <div className="flex items-start gap-2.5 sm:gap-3">
+              {post.avatarUrl ? (
+                <Image src={post.avatarUrl} alt="" width={40} height={40} unoptimized className="h-10 w-10 rounded-full object-cover sm:h-11 sm:w-11" />
+              ) : (
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-xs font-bold text-white sm:h-11 sm:w-11">
+                  {(post.authorName || 'U').slice(0, 1).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs sm:gap-2">
+                  <p className="font-semibold text-slate-900">{post.authorName || 'Member'}</p>
+                  {post.authorUsername ? <Link href={`/profile/${encodeURIComponent(post.authorUsername)}`} className="text-slate-500 hover:text-violet-700">@{post.authorUsername}</Link> : null}
+                  <span className="text-slate-400">· {new Date(post.createdAt).toLocaleString()}</span>
+                </div>
+                <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700 sm:mt-2.5 sm:text-[14px] sm:leading-6">{post.content}</p>
+
+                <div className="mt-3 flex flex-wrap gap-1.5 sm:gap-2">
+                  {post.tags.map((tag) => (
+                    <span key={tag} className="rounded-full bg-pink-100 px-2 py-0.5 text-[10px] font-medium text-pink-700 sm:text-xs">
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="mt-3 flex items-center gap-4 text-xs text-slate-500 sm:gap-5 sm:text-sm">
+                  <span>❤️ {post.likes}</span>
+                  <span>💬 {post.comments}</span>
+                  <span>↻ {post.reposts}</span>
+                </div>
+              </div>
+            </div>
+          </article>
+        ))}
       </div>
-
-      {message ? <p className="mt-2 text-xs text-violet-700 sm:text-sm">{message}</p> : null}
-    </form>
+    </div>
   );
 }
