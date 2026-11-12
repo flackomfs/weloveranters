@@ -8,9 +8,6 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEv
 import { getFirebaseAuth } from '@/lib/firebase-client';
 import { Sidebar } from '@/components/Sidebar';
 import { PostCard, type FeedPost } from '@/components/PostCard';
-import boysVerifiedBadge from '@/src/images/boys verified.gif';
-import girlsVerifiedBadge from '@/src/images/girls verified.gif';
-import moderatorBadge from '@/src/images/moderator.gif';
 
 type SocialLinks = {
   website?: string;
@@ -428,8 +425,8 @@ export function ProfileScreen({ username }: { username?: string }) {
                         {profile.verificationBadge ? (
                           <Image
                             src={profile.verificationBadge === 'moderator'
-                              ? moderatorBadge
-                              : profile.verificationBadge === 'boy' ? boysVerifiedBadge : girlsVerifiedBadge}
+                              ? '/badges/moderator.gif'
+                              : profile.verificationBadge === 'boy' ? '/badges/boys-verified.gif' : '/badges/girls-verified.gif'}
                             alt={`${profile.verificationBadge} verified badge`}
                             width={28}
                             height={28}

@@ -80,7 +80,10 @@ export function AuthScreen() {
         </div>
 
         <div className="mb-4 text-center">
-          <h1 className="text-2xl font-black tracking-tight text-white">{mode === 'login' ? 'Welcome Ranter' : 'Create your account'}</h1>
+          <div className="flex items-center justify-center gap-2">
+            <h1 className="text-xl font-black tracking-tight text-white sm:text-2xl">{mode === 'login' ? 'Welcome Ranter' : 'Create your account'}</h1>
+            {mode === 'login' ? <Image src="/skeleton.gif" alt="" unoptimized width={36} height={36} aria-hidden="true" className="h-8 w-8 shrink-0 object-contain sm:h-9 sm:w-9" /> : null}
+          </div>
           {mode !== 'login' ? <p className="mt-1 text-sm text-slate-300">Join the conversation, honestly.</p> : null}
         </div>
 

@@ -5,9 +5,6 @@ import Link from 'next/link';
 import { Flag, Heart, MessageCircle, Pencil, Repeat2, Send, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { getFirebaseAuth } from '@/lib/firebase-client';
-import boysVerifiedBadge from '@/src/images/boys verified.gif';
-import girlsVerifiedBadge from '@/src/images/girls verified.gif';
-import moderatorBadge from '@/src/images/moderator.gif';
 import { RichText } from '@/components/RichText';
 
 export type FeedPost = {
@@ -279,8 +276,8 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
             {post.verificationBadge ? (
               <Image
                 src={post.verificationBadge === 'moderator'
-                  ? moderatorBadge
-                  : post.verificationBadge === 'boy' ? boysVerifiedBadge : girlsVerifiedBadge}
+                  ? '/badges/moderator.gif'
+                  : post.verificationBadge === 'boy' ? '/badges/boys-verified.gif' : '/badges/girls-verified.gif'}
                 alt={`${post.verificationBadge} verified badge`}
                 width={18}
                 height={18}
