@@ -80,8 +80,8 @@ export function AuthScreen() {
         </div>
 
         <div className="mb-4 text-center">
-          <h1 className="text-2xl font-black tracking-tight text-white">{mode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
-          <p className="mt-1 text-sm text-slate-300">{mode === 'login' ? 'Log in to keep venting safely.' : 'Join the conversation, honestly.'}</p>
+          <h1 className="text-2xl font-black tracking-tight text-white">{mode === 'login' ? 'Welcome, Ranters' : 'Create your account'}</h1>
+          {mode !== 'login' ? <p className="mt-1 text-sm text-slate-300">Join the conversation, honestly.</p> : null}
         </div>
 
         <button type="button" onClick={handleGoogleSignIn} disabled={isSubmitting} className="group flex w-full items-center justify-center gap-3 rounded-2xl border border-violet-400/30 bg-white px-4 py-3 font-semibold text-slate-900 shadow-lg shadow-violet-500/10 transition hover:-translate-y-0.5 hover:bg-violet-50 disabled:cursor-wait disabled:opacity-70">
