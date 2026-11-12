@@ -7,6 +7,7 @@ import { ArrowLeft, ExternalLink, Pencil, Save, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { getFirebaseAuth } from '@/lib/firebase-client';
 import { Sidebar } from '@/components/Sidebar';
+import { PostCard, type FeedPost } from '@/components/PostCard';
 
 type SocialLinks = {
   website?: string;
@@ -32,14 +33,6 @@ type Profile = {
   followersOverride: number | null;
   followingOverride: number | null;
   canManageStats: boolean;
-};
-
-type ProfilePost = {
-  id: string;
-  content: string;
-  createdAt: string;
-  likes: number;
-  comments: number;
 };
 
 const socialFields: Array<{ key: keyof SocialLinks; label: string }> = [
@@ -91,7 +84,7 @@ export function ProfileScreen({ username }: { username?: string }) {
   const isOwnProfile = !username;
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [posts, setPosts] = useState<ProfilePost[]>([]);
+  const [posts, setPosts] = useState<FeedPost[]>([]);
   const [form, setForm] = useState({ name: '', username: '', avatarUrl: '', bannerUrl: '', bio: '', socialLinks: {} as SocialLinks });
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -133,7 +126,10 @@ export function ProfileScreen({ username }: { username?: string }) {
         });
       }
 
-      const postsResponse = await fetch(`/api/posts?username=${encodeURIComponent(loadedProfile.username)}`, { cache: 'no-store' });
+      const postsResponse = await fetch(`/api/posts?username=${encodeURIComponent(loadedProfile.username)}`, {
+        cache: 'no-store',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined
+      });
       if (postsResponse.ok) {
         const postsData = await postsResponse.json();
         setPosts(postsData.posts);
@@ -484,11 +480,11 @@ export function ProfileScreen({ username }: { username?: string }) {
               {posts.length ? (
                 <div className="space-y-4">
                   {posts.map((post) => (
-                    <article key={post.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">{new Date(post.createdAt).toLocaleString()}</p>
-                      <p className="mt-3 whitespace-pre-line text-slate-700">{post.content}</p>
-                      <div className="mt-3 flex gap-6 text-sm text-slate-500"><span>❤️ {post.likes}</span><span>💬 {post.comments}</span></div>
-                    </article>
+                    <PostCard
+                      key={post.entryId}
+                      post={post}
+                      onChanged={() => void loadProfile(firebaseUser || undefined)}
+                    />
                   ))}
                 </div>
               ) : (

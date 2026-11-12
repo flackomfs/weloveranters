@@ -1,10 +1,21 @@
 import { NextResponse } from 'next/server';
+import { isAdminUid } from '@/lib/admin';
 import { verifyIdToken } from '@/lib/firebase';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
 function getBearerToken(request: Request) {
   const authorization = request.headers.get('authorization') || '';
   return authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+}
+
+async function getViewerId(request: Request) {
+  const token = getBearerToken(request);
+  if (!token) return '';
+  try {
+    return (await verifyIdToken(token)).uid;
+  } catch {
+    return '';
+  }
 }
 
 export async function GET(request: Request) {
@@ -14,30 +25,52 @@ export async function GET(request: Request) {
 
   try {
     await initTursoSchema();
-    const username = new URL(request.url).searchParams.get('username');
-    const result = username
-      ? await tursoClient.execute({
-          sql: `SELECT p.id, p.content, p.created_at AS createdAt, p.user_id AS userId,
-              p.likes, p.comments, p.reposts, u.display_name AS authorName,
-              u.username AS authorUsername, u.avatar_url AS avatarUrl
-            FROM posts p LEFT JOIN users u ON u.id = p.user_id
-            WHERE u.username = ? ORDER BY p.created_at DESC LIMIT 100`,
-          args: [username.toLowerCase()]
-        })
-      : await tursoClient.execute(`
-          SELECT p.id, p.content, p.created_at AS createdAt, p.user_id AS userId,
-            p.likes, p.comments, p.reposts, u.display_name AS authorName,
-            u.username AS authorUsername, u.avatar_url AS avatarUrl
-          FROM posts p LEFT JOIN users u ON u.id = p.user_id
-          ORDER BY p.created_at DESC LIMIT 100
-        `);
+    const viewerId = await getViewerId(request);
+    const username = new URL(request.url).searchParams.get('username')?.toLowerCase() || '';
+    const result = await tursoClient.execute({
+      sql: `WITH feed_entries AS (
+          SELECT p.id AS postId, p.id AS entryId, p.content, p.created_at AS createdAt,
+            p.user_id AS authorId, NULL AS reposterId, NULL AS reposterName, NULL AS reposterUsername
+          FROM posts p
+          UNION ALL
+          SELECT p.id AS postId, 'repost:' || r.user_id || ':' || p.id AS entryId,
+            p.content, r.created_at AS createdAt, p.user_id AS authorId,
+            r.user_id AS reposterId, r.author_name AS reposterName, r.author_username AS reposterUsername
+          FROM post_reposts r
+          INNER JOIN posts p ON p.id = r.post_id
+        )
+        SELECT e.postId AS id, e.entryId, e.content, e.createdAt, e.authorId AS userId,
+          p.likes, u.display_name AS authorName, u.username AS authorUsername,
+          u.avatar_url AS avatarUrl, e.reposterId AS repostedById,
+          COALESCE(ru.display_name, e.reposterName) AS repostedByName,
+          COALESCE(ru.username, e.reposterUsername) AS repostedByUsername,
+          EXISTS (
+            SELECT 1 FROM post_reposts viewer_repost
+            WHERE viewer_repost.user_id = ? AND viewer_repost.post_id = e.postId
+          ) AS isReposted,
+          (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = e.postId) AS comments,
+          (SELECT COUNT(*) FROM post_reposts all_reposts WHERE all_reposts.post_id = e.postId) AS reposts
+        FROM feed_entries e
+        INNER JOIN posts p ON p.id = e.postId
+        LEFT JOIN users u ON u.id = e.authorId
+        LEFT JOIN users ru ON ru.id = e.reposterId
+        WHERE (? = '' OR COALESCE(ru.username, e.reposterUsername, u.username) = ?)
+        ORDER BY e.createdAt DESC
+        LIMIT 100`,
+      args: [viewerId, username, username]
+    });
 
     const posts = result.rows.map((row) => ({
       ...row,
       avatarUrl: String(row.avatarUrl || '').startsWith('data:image/')
         ? `/api/profile/photo?uid=${encodeURIComponent(String(row.userId))}`
         : row.avatarUrl,
-      tags: (String(row.content).match(/#[a-zA-Z0-9_]+/g) || []).map((tag) => tag.slice(1).toLowerCase())
+      tags: (String(row.content).match(/#[a-zA-Z0-9_]+/g) || []).map((tag) => tag.slice(1).toLowerCase()),
+      likes: Number(row.likes || 0),
+      comments: Number(row.comments || 0),
+      reposts: Number(row.reposts || 0),
+      isReposted: Number(row.isReposted) > 0,
+      canDelete: Boolean(viewerId && isAdminUid(viewerId))
     }));
 
     return NextResponse.json({ posts, available: true }, { headers: { 'Cache-Control': 'no-store' } });

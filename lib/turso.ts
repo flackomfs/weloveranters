@@ -45,6 +45,29 @@ export async function initTursoSchema() {
       `);
 
       await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS post_comments (
+          id TEXT PRIMARY KEY,
+          post_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          author_name TEXT NOT NULL,
+          author_username TEXT NOT NULL,
+          content TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+      `);
+
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS post_reposts (
+          user_id TEXT NOT NULL,
+          post_id TEXT NOT NULL,
+          author_name TEXT NOT NULL,
+          author_username TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (user_id, post_id)
+        );
+      `);
+
+      await tursoClient.execute(`
         CREATE TABLE IF NOT EXISTS follows (
           follower_id TEXT NOT NULL,
           following_id TEXT NOT NULL,
@@ -84,6 +107,8 @@ export async function initTursoSchema() {
 
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS notifications_recipient_created_idx ON notifications (recipient_id, created_at);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_hashtags_created_at_idx ON post_hashtags (created_at);');
+      await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_comments_post_created_idx ON post_comments (post_id, created_at);');
+      await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_reposts_post_created_idx ON post_reposts (post_id, created_at);');
 
       const userColumns = await tursoClient.execute('PRAGMA table_info(users)');
       const existingColumns = new Set(userColumns.rows.map((row) => String(row.name)));

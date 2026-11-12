@@ -1,34 +1,32 @@
 'use client';
 
-import Image from 'next/image';
-import Link from 'next/link';
+import { onAuthStateChanged, type User } from 'firebase/auth';
 import { useCallback, useEffect, useState } from 'react';
-
+import { PostCard, type FeedPost } from '@/components/PostCard';
 import { PostComposer } from '@/components/PostComposer';
-
-type FeedPost = {
-  id: string;
-  content: string;
-  createdAt: string;
-  likes: number;
-  comments: number;
-  reposts: number;
-  authorName: string | null;
-  authorUsername: string | null;
-  avatarUrl: string | null;
-  tags: string[];
-};
+import { getFirebaseAuth } from '@/lib/firebase-client';
 
 export function Feed() {
   const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAvailable, setIsAvailable] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
 
+  useEffect(() => {
+    const auth = getFirebaseAuth();
+    if (!auth) return;
+    return onAuthStateChanged(auth, setUser);
+  }, []);
+
   const loadPosts = useCallback(async () => {
     try {
-      const response = await fetch('/api/posts', { cache: 'no-store' });
+      const token = user ? await user.getIdToken() : '';
+      const response = await fetch('/api/posts', {
+        cache: 'no-store',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to load posts.');
       setPosts(data.posts);
@@ -39,7 +37,7 @@ export function Feed() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     void loadPosts();
@@ -74,41 +72,7 @@ export function Feed() {
         {!isLoading && !error && !isAvailable ? <p className="py-8 text-center text-sm text-slate-500">The feed is unavailable because database storage is not configured.</p> : null}
         {!isLoading && !error && isAvailable && posts.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No rants yet. Be the first to share one.</p> : null}
         {!isLoading && !error && posts.length > 0 && filteredPosts.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No rants match your search.</p> : null}
-        {filteredPosts.map((post) => (
-          <article key={post.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-2.5 sm:rounded-3xl sm:p-3">
-            <div className="flex items-start gap-2.5 sm:gap-3">
-              {post.avatarUrl ? (
-                <Image src={post.avatarUrl} alt="" width={40} height={40} unoptimized className="h-10 w-10 rounded-full object-cover sm:h-11 sm:w-11" />
-              ) : (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-violet-500 text-xs font-bold text-white sm:h-11 sm:w-11">
-                  {(post.authorName || 'U').slice(0, 1).toUpperCase()}
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5 text-xs sm:gap-2">
-                  <p className="font-semibold text-slate-900">{post.authorName || 'Member'}</p>
-                  {post.authorUsername ? <Link href={`/profile/${encodeURIComponent(post.authorUsername)}`} className="text-slate-500 hover:text-violet-700">@{post.authorUsername}</Link> : null}
-                  <span className="text-slate-400">· {new Date(post.createdAt).toLocaleString()}</span>
-                </div>
-                <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700 sm:mt-2.5 sm:text-[14px] sm:leading-6">{post.content}</p>
-
-                <div className="mt-3 flex flex-wrap gap-1.5 sm:gap-2">
-                  {post.tags.map((tag) => (
-                    <span key={tag} className="rounded-full bg-pink-100 px-2 py-0.5 text-[10px] font-medium text-pink-700 sm:text-xs">
-                      #{tag}
-                    </span>
-                  ))}
-                </div>
-
-                <div className="mt-3 flex items-center gap-4 text-xs text-slate-500 sm:gap-5 sm:text-sm">
-                  <span>❤️ {post.likes}</span>
-                  <span>💬 {post.comments}</span>
-                  <span>↻ {post.reposts}</span>
-                </div>
-              </div>
-            </div>
-          </article>
-        ))}
+        {filteredPosts.map((post) => <PostCard key={post.entryId} post={post} onChanged={() => void loadPosts()} />)}
       </div>
     </div>
   );
