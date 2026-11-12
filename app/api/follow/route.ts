@@ -45,7 +45,11 @@ export async function POST(request: Request) {
       await tursoClient.batch([
         { sql: 'DELETE FROM follows WHERE follower_id = ? AND following_id = ?', args: [user.uid, targetId] },
         updateFollowerCount,
-        updateFollowingCount
+        updateFollowingCount,
+        {
+          sql: 'INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+          args: [`unfollow_${crypto.randomUUID()}`, targetId, user.uid, 'unfollow', null, new Date().toISOString()]
+        }
       ], 'write');
     } else {
       await tursoClient.batch([

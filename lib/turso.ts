@@ -105,7 +105,19 @@ export async function initTursoSchema() {
         );
       `);
 
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS user_verification_requests (
+          user_id TEXT PRIMARY KEY,
+          requested_badge TEXT NOT NULL CHECK (requested_badge IN ('boy', 'girl')),
+          status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
+          created_at TEXT NOT NULL,
+          reviewed_at TEXT,
+          reviewed_by TEXT
+        );
+      `);
+
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS notifications_recipient_created_idx ON notifications (recipient_id, created_at);');
+      await tursoClient.execute('CREATE INDEX IF NOT EXISTS user_verification_requests_status_created_idx ON user_verification_requests (status, created_at);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_hashtags_created_at_idx ON post_hashtags (created_at);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_comments_post_created_idx ON post_comments (post_id, created_at);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_reposts_post_created_idx ON post_reposts (post_id, created_at);');

@@ -9,7 +9,7 @@ import { getFirebaseAuth } from '@/lib/firebase-client';
 
 type NotificationItem = {
   id: string;
-  type: 'follow' | 'post' | 'like' | 'comment' | 'repost';
+  type: 'follow' | 'unfollow' | 'post' | 'like' | 'comment' | 'repost';
   entityId: string | null;
   createdAt: string;
   readAt: string | null;
@@ -20,6 +20,7 @@ type NotificationItem = {
 
 const notificationMessages: Record<NotificationItem['type'], string> = {
   follow: 'started following you.',
+  unfollow: 'unfollowed you.',
   post: 'posted a new rant.',
   like: 'reacted to your rant.',
   comment: 'commented on your rant.',
@@ -141,7 +142,7 @@ export default function NotificationsPage() {
                         </Link>{' '}
                         {notificationMessages[notification.type]}
                       </p>
-                      {notification.type !== 'follow' && notification.postContent ? <p className="mt-1 line-clamp-2 text-sm text-slate-400">{notification.postContent}</p> : null}
+                      {notification.type !== 'follow' && notification.type !== 'unfollow' && notification.postContent ? <p className="mt-1 line-clamp-2 text-sm text-slate-400">{notification.postContent}</p> : null}
                       <time className="mt-1 block text-xs text-slate-500" dateTime={notification.createdAt}>{new Date(notification.createdAt).toLocaleString()}</time>
                     </div>
                   </article>

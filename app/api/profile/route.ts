@@ -46,26 +46,35 @@ function getBearerToken(request: Request) {
 async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewerId: string | null) {
   if (!tursoClient) return profile;
 
-  const counts = await tursoClient.execute({
-    sql: `SELECT
+  const [counts, verification, isFollowing] = await Promise.all([
+    tursoClient.execute({
+      sql: `SELECT
         (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers,
         (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following`,
-    args: [profile.id, profile.id]
-  });
-
-  const isFollowing = viewerId && viewerId !== profile.id
-    ? await tursoClient.execute({
+      args: [profile.id, profile.id]
+    }),
+    tursoClient.execute({
+      sql: `SELECT requested_badge FROM user_verification_requests
+        WHERE user_id = ? AND status = 'approved'`,
+      args: [profile.id]
+    }),
+    viewerId && viewerId !== profile.id
+      ? tursoClient.execute({
         sql: 'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?',
         args: [viewerId, profile.id]
       })
-    : null;
+      : Promise.resolve(null)
+  ]);
+  const isAdmin = isAdminUid(profile.id);
+  const requestedBadge = verification.rows[0]?.requested_badge;
 
   return {
     ...profile,
     followers: profile.followersOverride ?? Number(counts.rows[0]?.followers || 0),
     following: profile.followingOverride ?? Number(counts.rows[0]?.following || 0),
     isFollowing: Boolean(isFollowing?.rows[0]),
-    canManageStats: Boolean(viewerId && isAdminUid(viewerId))
+    canManageStats: Boolean(viewerId && isAdminUid(viewerId)),
+    verificationBadge: isAdmin ? 'moderator' : requestedBadge === 'boy' || requestedBadge === 'girl' ? requestedBadge : null
   };
 }
 

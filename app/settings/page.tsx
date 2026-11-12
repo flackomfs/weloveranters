@@ -18,6 +18,18 @@ type AccountProfile = {
   avatarUrl: string;
 };
 
+type BadgeKind = 'boy' | 'girl';
+type VerificationRequest = {
+  requestedBadge: BadgeKind;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+};
+type PendingVerificationRequest = VerificationRequest & {
+  userId: string;
+  name: string | null;
+  username: string | null;
+};
+
 export default function SettingsPage() {
   const router = useRouter();
   const { theme, chooseTheme } = useTheme();
@@ -25,6 +37,14 @@ export default function SettingsPage() {
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const [isThemeSaving, setIsThemeSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [verificationRequest, setVerificationRequest] = useState<VerificationRequest | null>(null);
+  const [pendingVerifications, setPendingVerifications] = useState<PendingVerificationRequest[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [requestedBadge, setRequestedBadge] = useState<BadgeKind>('boy');
+  const [isSubmittingVerification, setIsSubmittingVerification] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState('');
+  const [verificationError, setVerificationError] = useState('');
+  const [reviewingUserId, setReviewingUserId] = useState('');
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -34,20 +54,82 @@ export default function SettingsPage() {
       setUser(nextUser);
       if (!nextUser) {
         setProfile(null);
+        setVerificationRequest(null);
+        setPendingVerifications([]);
+        setIsAdmin(false);
         return;
       }
 
       try {
         const token = await nextUser.getIdToken();
-        const response = await fetch('/api/profile', { cache: 'no-store', headers: { Authorization: `Bearer ${token}` } });
-        if (!response.ok) return;
-        const data = await response.json();
-        setProfile(data.profile);
+        const headers = { Authorization: `Bearer ${token}` };
+        const [profileResponse, verificationResponse] = await Promise.all([
+          fetch('/api/profile', { cache: 'no-store', headers }),
+          fetch('/api/verification', { cache: 'no-store', headers })
+        ]);
+        if (profileResponse.ok) {
+          const data = await profileResponse.json();
+          setProfile(data.profile);
+        }
+        if (verificationResponse.ok) {
+          const data = await verificationResponse.json();
+          setVerificationRequest(data.request);
+          setPendingVerifications(data.pendingRequests);
+          setIsAdmin(data.isAdmin);
+        } else {
+          setVerificationError('Unable to load verification requests.');
+        }
       } catch {
-        setProfile(null);
+        setVerificationError('Unable to load account settings.');
       }
     });
   }, []);
+
+  async function submitVerificationRequest() {
+    if (!user || isSubmittingVerification) return;
+    setIsSubmittingVerification(true);
+    setVerificationMessage('');
+    setVerificationError('');
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ badge: requestedBadge })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to submit verification request.');
+      setVerificationRequest({ requestedBadge, status: 'pending', createdAt: new Date().toISOString() });
+      setVerificationMessage('Your badge request was sent for admin review.');
+    } catch (requestError) {
+      setVerificationError(requestError instanceof Error ? requestError.message : 'Unable to submit verification request.');
+    } finally {
+      setIsSubmittingVerification(false);
+    }
+  }
+
+  async function reviewVerificationRequest(userId: string, status: 'approved' | 'rejected') {
+    if (!user) return;
+    setReviewingUserId(userId);
+    setVerificationError('');
+    setVerificationMessage('');
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/verification', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId, status })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to review verification request.');
+      setPendingVerifications((current) => current.filter((request) => request.userId !== userId));
+      setVerificationMessage(`Badge request ${status}.`);
+    } catch (reviewError) {
+      setVerificationError(reviewError instanceof Error ? reviewError.message : 'Unable to review verification request.');
+    } finally {
+      setReviewingUserId('');
+    }
+  }
 
   async function handleRandomTheme() {
     const nextTheme = THEME_PALETTES[Math.floor(Math.random() * THEME_PALETTES.length)];
@@ -144,6 +226,88 @@ export default function SettingsPage() {
               </div>
 
               {message ? <p role="status" className="mt-4 text-sm text-slate-300">{message}</p> : null}
+            </section>
+
+            <section className="rounded-2xl border border-violet-400/20 bg-slate-900/80 p-5 shadow-[0_0_30px_rgba(168,85,247,0.08)] sm:p-6">
+              <div className="mb-4">
+                <h2 className="text-lg font-bold text-white">Verification request</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Choose the badge that matches how you identify. An admin reviews requests; no face scan or gender detection is used.
+                </p>
+              </div>
+              {!user ? (
+                <p className="text-sm text-slate-400">Sign in to request a profile badge.</p>
+              ) : (
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="min-w-52 flex-1 text-sm font-medium text-slate-300">
+                    Requested badge
+                    <select
+                      value={requestedBadge}
+                      onChange={(event) => setRequestedBadge(event.target.value === 'girl' ? 'girl' : 'boy')}
+                      disabled={verificationRequest?.status === 'pending' || verificationRequest?.status === 'approved'}
+                      className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-violet-400 disabled:opacity-60"
+                    >
+                      <option value="boy">Boys verified</option>
+                      <option value="girl">Girls verified</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void submitVerificationRequest()}
+                    disabled={isSubmittingVerification || verificationRequest?.status === 'pending' || verificationRequest?.status === 'approved'}
+                    className="rounded-full bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isSubmittingVerification ? 'Submitting...' : verificationRequest?.status === 'pending' ? 'Pending review' : verificationRequest?.status === 'approved' ? 'Badge approved' : verificationRequest?.status === 'rejected' ? 'Request again' : 'Submit request'}
+                  </button>
+                </div>
+              )}
+              {verificationRequest ? (
+                <p className="mt-3 text-sm text-slate-300">
+                  Current request: <span className="font-semibold capitalize">{verificationRequest.requestedBadge}</span>
+                  {' · '}
+                  <span className="capitalize">{verificationRequest.status}</span>
+                </p>
+              ) : null}
+              {verificationMessage ? <p role="status" className="mt-3 text-sm text-emerald-300">{verificationMessage}</p> : null}
+              {verificationError ? <p role="alert" className="mt-3 text-sm text-rose-300">{verificationError}</p> : null}
+
+              {isAdmin ? (
+                <div className="mt-6 border-t border-white/10 pt-5">
+                  <h3 className="font-semibold text-white">Pending badge requests</h3>
+                  {pendingVerifications.length === 0 ? (
+                    <p className="mt-2 text-sm text-slate-400">No requests are waiting for review.</p>
+                  ) : (
+                    <ul className="mt-3 divide-y divide-white/10">
+                      {pendingVerifications.map((request) => (
+                        <li key={request.userId} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                          <div>
+                            <p className="font-medium text-white">{request.name || 'Member'}</p>
+                            <p className="text-sm text-slate-400">@{request.username || 'unknown'} · requested {request.requestedBadge}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void reviewVerificationRequest(request.userId, 'approved')}
+                              disabled={Boolean(reviewingUserId)}
+                              className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                            >
+                              {reviewingUserId === request.userId ? 'Saving...' : 'Approve'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void reviewVerificationRequest(request.userId, 'rejected')}
+                              disabled={Boolean(reviewingUserId)}
+                              className="rounded-full border border-rose-400/30 px-3 py-1.5 text-xs font-semibold text-rose-200 disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
             </section>
           </div>
         </main>

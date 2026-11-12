@@ -6,7 +6,7 @@ import { PostCard, type FeedPost } from '@/components/PostCard';
 import { PostComposer } from '@/components/PostComposer';
 import { getFirebaseAuth } from '@/lib/firebase-client';
 
-export function Feed() {
+export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -46,23 +46,27 @@ export function Feed() {
   }, [loadPosts]);
 
   const normalizedQuery = query.trim().toLowerCase();
-  const filteredPosts = posts.filter((post) =>
-    [post.content, post.authorName, post.authorUsername, ...post.tags]
-      .some((value) => value?.toLowerCase().includes(normalizedQuery))
-  );
+  const filteredPosts = !isExplore || !normalizedQuery
+    ? posts
+    : posts.filter((post) =>
+        [post.content, post.authorName, post.authorUsername, ...post.tags]
+          .some((value) => value?.toLowerCase().includes(normalizedQuery))
+      );
 
   return (
     <div className="min-w-0 rounded-none border-0 bg-transparent p-0 shadow-none sm:rounded-3xl sm:border sm:border-slate-200 sm:bg-white sm:p-4 sm:shadow-soft">
-      <div className="mb-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 sm:mb-4 sm:rounded-2xl sm:px-4 sm:py-3">
-        <span className="text-lg text-slate-400">⌕</span>
-        <input
-          aria-label="Search"
-          placeholder="Search topics, people, or emotions"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          className="w-full border-0 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-        />
-      </div>
+      {isExplore ? (
+        <div className="mb-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 sm:mb-4 sm:rounded-2xl sm:px-4 sm:py-3">
+          <span className="text-lg text-slate-400">⌕</span>
+          <input
+            aria-label="Search"
+            placeholder="Search topics, people, or emotions"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="w-full border-0 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+          />
+        </div>
+      ) : null}
 
       <PostComposer onPosted={loadPosts} />
 

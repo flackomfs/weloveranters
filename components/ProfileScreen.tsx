@@ -8,6 +8,9 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEv
 import { getFirebaseAuth } from '@/lib/firebase-client';
 import { Sidebar } from '@/components/Sidebar';
 import { PostCard, type FeedPost } from '@/components/PostCard';
+import boysVerifiedBadge from '@/src/images/boys verified.gif';
+import girlsVerifiedBadge from '@/src/images/girls verified.gif';
+import moderatorBadge from '@/src/images/moderator.gif';
 
 type SocialLinks = {
   website?: string;
@@ -33,6 +36,7 @@ type Profile = {
   followersOverride: number | null;
   followingOverride: number | null;
   canManageStats: boolean;
+  verificationBadge: 'boy' | 'girl' | 'moderator' | null;
 };
 
 const socialFields: Array<{ key: keyof SocialLinks; label: string }> = [
@@ -370,7 +374,21 @@ export function ProfileScreen({ username }: { username?: string }) {
                 {!isEditing ? (
                   <>
                     <div className="mt-4">
-                      <h1 className="text-3xl font-bold">{profile.name}</h1>
+                      <div className="flex items-center gap-2">
+                        <h1 className="text-3xl font-bold">{profile.name}</h1>
+                        {profile.verificationBadge ? (
+                          <Image
+                            src={profile.verificationBadge === 'moderator'
+                              ? moderatorBadge
+                              : profile.verificationBadge === 'boy' ? boysVerifiedBadge : girlsVerifiedBadge}
+                            alt={`${profile.verificationBadge} verified badge`}
+                            width={28}
+                            height={28}
+                            unoptimized
+                            className="h-7 w-7 object-contain"
+                          />
+                        ) : null}
+                      </div>
                       <p className="mt-1 text-slate-500">@{profile.username}</p>
                     </div>
                     <p className="mt-4 max-w-2xl whitespace-pre-wrap text-slate-700">{profile.bio || 'No bio added yet.'}</p>
