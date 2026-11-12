@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { signOut } from 'firebase/auth';
-import { Check, LogOut, Palette, Sparkles, UserRound } from 'lucide-react';
+import { Check, ChevronDown, LogOut, Palette, Sparkles, UserRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { useTheme } from '@/components/ThemeProvider';
@@ -50,6 +50,21 @@ type PendingReport = {
   authorName: string | null;
 };
 
+function SectionToggle({ id, expanded, onToggle }: { id: string; expanded: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-controls={id}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/5"
+    >
+      {expanded ? 'Hide' : 'Show'}
+      <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+    </button>
+  );
+}
+
 const notificationLabels: Array<{ key: keyof NotificationPreferences; label: string }> = [
   { key: 'follows', label: 'New followers and unfollows' },
   { key: 'posts', label: 'Posts from people you follow' },
@@ -65,6 +80,13 @@ export default function SettingsPage() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const [isThemeSaving, setIsThemeSaving] = useState(false);
+  const [expandedSections, setExpandedSections] = useState({
+    account: false,
+    theme: false,
+    verification: false,
+    notifications: false,
+    reports: false
+  });
   const [message, setMessage] = useState('');
   const [verificationRequest, setVerificationRequest] = useState<VerificationRequest | null>(null);
   const [pendingVerifications, setPendingVerifications] = useState<PendingVerificationRequest[]>([]);
@@ -81,6 +103,10 @@ export default function SettingsPage() {
   const [preferenceMessage, setPreferenceMessage] = useState('');
   const [pendingReports, setPendingReports] = useState<PendingReport[]>([]);
   const [reviewingReportId, setReviewingReportId] = useState('');
+
+  function toggleSection(section: keyof typeof expandedSections) {
+    setExpandedSections((current) => ({ ...current, [section]: !current[section] }));
+  }
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -255,36 +281,41 @@ export default function SettingsPage() {
             </header>
 
             <section className="rounded-2xl border border-violet-400/20 bg-slate-900/80 p-5 shadow-[0_0_30px_rgba(168,85,247,0.08)] sm:p-6">
-              <div className="mb-5 flex items-center gap-3">
-                <UserRound className="h-5 w-5 text-violet-300" />
-                <h2 className="text-lg font-bold text-white">Account details</h2>
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <UserRound className="h-5 w-5 text-violet-300" />
+                  <h2 className="text-lg font-bold text-white">Account details</h2>
+                </div>
+                <SectionToggle id="account-details" expanded={expandedSections.account} onToggle={() => toggleSection('account')} />
               </div>
-              {user ? (
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex min-w-0 items-center gap-3">
-                    {profile?.avatarUrl || user.photoURL ? (
-                      <Image src={profile?.avatarUrl || user.photoURL || ''} alt="" width={48} height={48} unoptimized className="h-12 w-12 rounded-full object-cover" />
-                    ) : (
-                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-violet-500/20 font-bold text-violet-100">{(user.displayName || user.email || 'U').slice(0, 1).toUpperCase()}</div>
-                    )}
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-white">{profile?.name || user.displayName || 'Your account'}</p>
-                      <p className="truncate text-sm text-slate-400">{user.email}</p>
+              <div id="account-details" hidden={!expandedSections.account}>
+                {user ? (
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex min-w-0 items-center gap-3">
+                      {profile?.avatarUrl || user.photoURL ? (
+                        <Image src={profile?.avatarUrl || user.photoURL || ''} alt="" width={48} height={48} unoptimized className="h-12 w-12 rounded-full object-cover" />
+                      ) : (
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-violet-500/20 font-bold text-violet-100">{(user.displayName || user.email || 'U').slice(0, 1).toUpperCase()}</div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-white">{profile?.name || user.displayName || 'Your account'}</p>
+                        <p className="truncate text-sm text-slate-400">{user.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Link href="/profile" className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-violet-400/40 hover:bg-violet-500/10">View profile</Link>
+                      <button type="button" onClick={handleLogout} className="inline-flex items-center gap-2 rounded-full border border-rose-400/25 px-4 py-2 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/10">
+                        <LogOut className="h-4 w-4" /> Logout
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Link href="/profile" className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-violet-400/40 hover:bg-violet-500/10">View profile</Link>
-                    <button type="button" onClick={handleLogout} className="inline-flex items-center gap-2 rounded-full border border-rose-400/25 px-4 py-2 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/10">
-                      <LogOut className="h-4 w-4" /> Logout
-                    </button>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-slate-400">Sign in to manage your account profile and sync settings.</p>
+                    <Link href="/auth" className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white">Log in</Link>
                   </div>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-sm text-slate-400">Sign in to manage your account profile and sync settings.</p>
-                  <Link href="/auth" className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white">Log in</Link>
-                </div>
-              )}
+                )}
+              </div>
             </section>
 
             <section className="rounded-2xl border border-violet-400/20 bg-slate-900/80 p-5 shadow-[0_0_30px_rgba(168,85,247,0.08)] sm:p-6">
@@ -296,12 +327,15 @@ export default function SettingsPage() {
                     <p className="mt-1 text-sm text-slate-400">{theme.name} · 3-color combination</p>
                   </div>
                 </div>
-                <button type="button" onClick={handleRandomTheme} disabled={isThemeSaving} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-500 to-pink-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                  <Sparkles className="h-4 w-4" /> Random
-                </button>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={handleRandomTheme} disabled={isThemeSaving} className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-500 to-pink-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                    <Sparkles className="h-4 w-4" /> Random
+                  </button>
+                  <SectionToggle id="theme-details" expanded={expandedSections.theme} onToggle={() => toggleSection('theme')} />
+                </div>
               </div>
 
-              <div className="mt-5 rounded-2xl border border-violet-400/20 bg-slate-950/50 p-4">
+              <div id="theme-details" hidden={!expandedSections.theme} className="mt-5 rounded-2xl border border-violet-400/20 bg-slate-950/50 p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-24 overflow-hidden rounded-full border border-white/10">
@@ -323,12 +357,16 @@ export default function SettingsPage() {
             </section>
 
             <section className="rounded-2xl border border-violet-400/20 bg-slate-900/80 p-5 shadow-[0_0_30px_rgba(168,85,247,0.08)] sm:p-6">
-              <div className="mb-4">
-                <h2 className="text-lg font-bold text-white">Verification request</h2>
-                <p className="mt-1 text-sm text-slate-400">
-                  Choose the badge that matches how you identify. An admin reviews requests; no face scan or gender detection is used.
-                </p>
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-bold text-white">Verification request</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Choose the badge that matches how you identify. An admin reviews requests; no face scan or gender detection is used.
+                  </p>
+                </div>
+                <SectionToggle id="verification-settings" expanded={expandedSections.verification} onToggle={() => toggleSection('verification')} />
               </div>
+              <div id="verification-settings" hidden={!expandedSections.verification}>
               {!user ? (
                 <p className="text-sm text-slate-400">Sign in to request a profile badge.</p>
               ) : (
@@ -402,11 +440,18 @@ export default function SettingsPage() {
                   )}
                 </div>
               ) : null}
+              </div>
             </section>
 
             <section className="rounded-2xl border border-violet-400/20 bg-slate-900/80 p-5 shadow-[0_0_30px_rgba(168,85,247,0.08)] sm:p-6">
-              <h2 className="text-lg font-bold text-white">Notification preferences</h2>
-              <p className="mt-1 text-sm text-slate-400">Choose which activity creates notifications for your account.</p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-bold text-white">Notification preferences</h2>
+                  <p className="mt-1 text-sm text-slate-400">Choose which activity creates notifications for your account.</p>
+                </div>
+                <SectionToggle id="notification-settings" expanded={expandedSections.notifications} onToggle={() => toggleSection('notifications')} />
+              </div>
+              <div id="notification-settings" hidden={!expandedSections.notifications}>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {notificationLabels.map(({ key, label }) => (
                   <label key={key} className="flex items-center gap-3 rounded-xl border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-200">
@@ -426,11 +471,16 @@ export default function SettingsPage() {
                 </button>
                 {preferenceMessage ? <p role="status" className="text-sm text-emerald-300">{preferenceMessage}</p> : null}
               </div>
+              </div>
             </section>
 
             {isAdmin ? (
               <section className="rounded-2xl border border-rose-400/20 bg-slate-900/80 p-5 shadow-[0_0_30px_rgba(168,85,247,0.08)] sm:p-6">
-                <h2 className="text-lg font-bold text-white">Reported posts</h2>
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="text-lg font-bold text-white">Reported posts</h2>
+                  <SectionToggle id="reported-posts" expanded={expandedSections.reports} onToggle={() => toggleSection('reports')} />
+                </div>
+                <div id="reported-posts" hidden={!expandedSections.reports}>
                 {pendingReports.length === 0 ? <p className="mt-2 text-sm text-slate-400">No reports are waiting for review.</p> : (
                   <ul className="mt-3 divide-y divide-white/10">
                     {pendingReports.map((report) => (
@@ -457,6 +507,7 @@ export default function SettingsPage() {
                     ))}
                   </ul>
                 )}
+                </div>
               </section>
             ) : null}
           </div>

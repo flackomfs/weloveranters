@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { verifyIdToken } from '@/lib/firebase';
 import { isAdminUid } from '@/lib/admin';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
+import { getAvailableDisplayName } from '@/lib/profile-identity';
 
 type SocialLinks = {
   website?: string;
@@ -105,18 +106,19 @@ async function ensureProfile(uid: string, email?: string, displayName?: string, 
   const current = existing.rows[0];
   const emailName = email?.split('@')[0] || 'user';
   const defaultUsername = makeDefaultUsername(email, uid);
+  const defaultDisplayName = await getAvailableDisplayName(tursoClient, displayName || emailName, uid);
   const safeEmail = email || '';
 
   if (current) {
     await tursoClient.execute({
       sql: `UPDATE users SET
         username = CASE WHEN username IS NULL OR username = '' THEN ? ELSE username END,
-        display_name = CASE WHEN display_name IS NULL OR display_name = '' THEN ? ELSE display_name END,
+        display_name = CASE WHEN display_name IS NULL OR trim(display_name) = '' THEN ? ELSE display_name END,
         avatar_url = CASE WHEN avatar_url IS NULL OR avatar_url = '' THEN ? ELSE avatar_url END,
         banner_url = CASE WHEN banner_url IS NULL OR banner_url = '' THEN ? ELSE banner_url END,
         email = CASE WHEN email IS NULL OR email = '' THEN ? ELSE email END
         WHERE id = ?`,
-      args: [defaultUsername, displayName || emailName, avatarUrl || '', bannerUrl || '', safeEmail, uid]
+      args: [defaultUsername, defaultDisplayName, avatarUrl || '', bannerUrl || '', safeEmail, uid]
     });
   } else {
     const emailOwner = email
@@ -131,7 +133,7 @@ async function ensureProfile(uid: string, email?: string, displayName?: string, 
     await tursoClient.execute({
       sql: `INSERT INTO users (id, email, display_name, username, avatar_url, banner_url, social_links)
         VALUES (?, ?, ?, ?, ?, ?, '{}')`,
-      args: [uid, insertEmail, displayName || emailName, defaultUsername, avatarUrl || '', bannerUrl || '']
+      args: [uid, insertEmail, defaultDisplayName, defaultUsername, avatarUrl || '', bannerUrl || '']
     });
   }
 
@@ -245,8 +247,8 @@ export async function PUT(request: Request) {
     if (!user) return NextResponse.json({ error: 'Sign in to update your profile.' }, { status: 401 });
 
     const body = await request.json();
-    const name = typeof body.name === 'string' ? body.name.trim() : '';
-    const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
+    const name = typeof body.name === 'string' ? body.name.normalize('NFKC').trim() : '';
+    const username = typeof body.username === 'string' ? body.username.normalize('NFKC').trim().toLowerCase() : '';
     const bio = typeof body.bio === 'string' ? body.bio.trim() : '';
     const avatarUrl = normalizeProfileImage(body.avatarUrl, 'Photo');
     const bannerUrl = normalizeProfileImage(body.bannerUrl, 'Banner');
@@ -263,8 +265,8 @@ export async function PUT(request: Request) {
     if (!name || name.length > 80) {
       return NextResponse.json({ error: 'Name must be between 1 and 80 characters.' }, { status: 400 });
     }
-    if (!/^[a-z0-9_]{3,24}$/.test(username)) {
-      return NextResponse.json({ error: 'Username must be 3-24 characters using letters, numbers, or underscores.' }, { status: 400 });
+    if (!/^[a-z0-9._-]{3,32}$/.test(username)) {
+      return NextResponse.json({ error: 'Username must be 3-32 characters using letters, numbers, periods, underscores, or hyphens.' }, { status: 400 });
     }
     if (bio.length > 280) {
       return NextResponse.json({ error: 'Bio must be 280 characters or fewer.' }, { status: 400 });
@@ -289,8 +291,11 @@ export async function PUT(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
 
-    if (message.includes('UNIQUE constraint failed: users.username')) {
+    if (message.includes('users.username') || message.includes('users_username_ci_unique')) {
       return NextResponse.json({ error: 'That username is already taken.' }, { status: 409 });
+    }
+    if (message.includes('users_display_name_ci_unique')) {
+      return NextResponse.json({ error: 'That display name is already taken.' }, { status: 409 });
     }
 
     if (message.startsWith('UNIQUE constraint failed: users.email') || message.includes('users.email')) {

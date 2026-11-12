@@ -182,6 +182,42 @@ export async function initTursoSchema() {
         await tursoClient.execute('ALTER TABLE users ADD COLUMN following_override INTEGER');
       }
 
+      await tursoClient.execute(`
+        UPDATE users
+        SET display_name = substr(trim(display_name), 1, max(1, 80 - length(id) - 3)) || ' (' || id || ')'
+        WHERE id IN (
+          SELECT id FROM (
+            SELECT id, ROW_NUMBER() OVER (PARTITION BY lower(trim(display_name)) ORDER BY id) AS duplicate_rank
+            FROM users
+            WHERE display_name IS NOT NULL AND trim(display_name) <> ''
+          )
+          WHERE duplicate_rank > 1
+        )
+      `);
+      await tursoClient.execute(`
+        UPDATE users
+        SET username = substr(trim(username), 1, max(1, 31 - length(id))) || '_' || lower(id)
+        WHERE id IN (
+          SELECT id FROM (
+            SELECT id, ROW_NUMBER() OVER (PARTITION BY lower(trim(username)) ORDER BY id) AS duplicate_rank
+            FROM users
+            WHERE username IS NOT NULL AND trim(username) <> ''
+          )
+          WHERE duplicate_rank > 1
+        )
+      `);
+      await tursoClient.execute('UPDATE users SET username = lower(trim(username)) WHERE username IS NOT NULL;');
+      await tursoClient.execute(`
+        CREATE UNIQUE INDEX IF NOT EXISTS users_display_name_ci_unique
+        ON users (lower(trim(display_name)))
+        WHERE display_name IS NOT NULL AND trim(display_name) <> ''
+      `);
+      await tursoClient.execute(`
+        CREATE UNIQUE INDEX IF NOT EXISTS users_username_ci_unique
+        ON users (lower(trim(username)))
+        WHERE username IS NOT NULL AND trim(username) <> ''
+      `);
+
       const postColumns = await tursoClient.execute('PRAGMA table_info(posts)');
       if (!postColumns.rows.some((row) => String(row.name) === 'updated_at')) {
         await tursoClient.execute('ALTER TABLE posts ADD COLUMN updated_at TEXT');

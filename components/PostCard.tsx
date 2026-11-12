@@ -310,16 +310,6 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
             <p className="mt-1.5 whitespace-pre-line text-sm leading-5 text-slate-700 sm:mt-2.5 sm:text-[14px] sm:leading-6"><RichText text={post.content} /></p>
           )}
 
-          {post.tags.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-1.5 sm:mt-3 sm:gap-2">
-              {post.tags.map((tag) => (
-                <span key={tag} className="rounded-full bg-pink-100 px-2 py-0.5 text-[10px] font-medium text-pink-700 sm:text-xs">
-                  #{tag}
-                </span>
-              ))}
-            </div>
-          ) : null}
-
           <div className="mt-2.5 flex flex-wrap items-center gap-4 text-xs text-slate-500 sm:mt-3 sm:gap-5 sm:text-sm">
             <button type="button" onClick={handleLike} aria-label={`Send heart, ${likes} hearts`} className="inline-flex items-center gap-1.5 text-rose-600 hover:text-rose-700">
               <Heart className="h-4 w-4 fill-current" /> {likes}

@@ -37,6 +37,7 @@ export async function GET(request: Request) {
           END
         WHERE n.recipient_id = ?
           AND COALESCE(np.enabled, 1) = 1
+          AND (n.type IN ('follow', 'unfollow') OR p.id IS NOT NULL)
         ORDER BY n.created_at DESC
         LIMIT 100`,
       args: [userId]

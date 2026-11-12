@@ -1,10 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <defs>
     <clipPath id="circle">
-      <circle cx="32" cy="32" r="30"/>
+      <circle cx="32" cy="32" r="30.5"/>
     </clipPath>
   </defs>
-  <circle cx="32" cy="32" r="31" fill="#fff"/>
-  <image href="/brand-logo.png" x="0" y="0" width="64" height="64" preserveAspectRatio="xMidYMid meet" clip-path="url(#circle)"/>
-  <circle cx="32" cy="32" r="30.5" fill="none" stroke="#8b5cf6" stroke-width="1"/>
+  <image href="/websitelogo.png" x="0" y="0" width="64" height="64" preserveAspectRatio="xMidYMid meet" clip-path="url(#circle)"/>
 </svg>

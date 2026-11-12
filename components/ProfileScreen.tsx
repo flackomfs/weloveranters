@@ -477,10 +477,12 @@ export function ProfileScreen({ username }: { username?: string }) {
                   <form onSubmit={handleSave} className="mt-5 space-y-4">
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="text-sm font-medium text-slate-700">Display name
-                        <input required maxLength={80} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-300" />
+                        <input required maxLength={80} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value.normalize('NFKC') })} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-300" />
+                        <span className="mt-1 block text-xs font-normal text-slate-400">Display names must be unique; styled Unicode fonts are converted to normal text.</span>
                       </label>
                       <label className="text-sm font-medium text-slate-700">@Username
-                        <input required minLength={3} maxLength={24} pattern="[a-zA-Z0-9_]+" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.toLowerCase() })} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-300" />
+                        <input required minLength={3} maxLength={32} pattern="[a-zA-Z0-9._-]+" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value.normalize('NFKC').toLowerCase() })} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-300" />
+                        <span className="mt-1 block text-xs font-normal text-slate-400">3-32 characters: letters, numbers, periods, underscores, and hyphens.</span>
                       </label>
                     </div>
 

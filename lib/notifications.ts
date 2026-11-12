@@ -51,7 +51,7 @@ export async function mentionNotificationStatements(
   createdAt: string
 ) {
   const usernames = Array.from(new Set(
-    Array.from(content.matchAll(/(?:^|[^a-zA-Z0-9_])@([a-zA-Z0-9_]{3,24})\b/g), (match) => match[1].toLowerCase())
+    Array.from(content.matchAll(/(?:^|[^a-zA-Z0-9_])@([a-zA-Z0-9._-]{3,32})(?![a-zA-Z0-9._-])/g), (match) => match[1].toLowerCase())
   ));
   if (!usernames.length) return [];
 

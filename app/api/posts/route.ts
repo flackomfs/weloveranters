@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAdminUid } from '@/lib/admin';
 import { verifyIdToken } from '@/lib/firebase';
 import { mentionNotificationStatements, notificationStatement } from '@/lib/notifications';
+import { getAvailableDisplayName } from '@/lib/profile-identity';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
 function getBearerToken(request: Request) {
@@ -126,8 +127,9 @@ export async function POST(request: Request) {
 
     await initTursoSchema();
     const emailName = user.email?.split('@')[0] || 'user';
-    const usernameBase = emailName.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20) || 'user';
-    const defaultUsername = `${usernameBase}_${user.uid.slice(0, 6).toLowerCase()}`;
+    const usernameBase = emailName.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 11) || 'user';
+    const defaultUsername = `${usernameBase}_${user.uid.slice(-12).toLowerCase()}`;
+    const defaultDisplayName = await getAvailableDisplayName(tursoClient, user.name || emailName, user.uid);
     await tursoClient.execute({
       sql: `INSERT INTO users (id, email, display_name, username, avatar_url)
         VALUES (?, ?, ?, ?, ?)
@@ -136,7 +138,7 @@ export async function POST(request: Request) {
           display_name = COALESCE(users.display_name, excluded.display_name),
           username = COALESCE(users.username, excluded.username),
           avatar_url = COALESCE(users.avatar_url, excluded.avatar_url)`,
-      args: [user.uid, user.email || '', user.name || emailName, defaultUsername, user.picture || '']
+      args: [user.uid, user.email || '', defaultDisplayName, defaultUsername, user.picture || '']
     });
 
     const createdAt = new Date().toISOString();

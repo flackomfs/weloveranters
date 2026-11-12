@@ -263,11 +263,16 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     }
 
     await tursoClient.batch([
+      {
+        sql: `DELETE FROM notifications
+          WHERE entity_id = ?
+            OR entity_id IN (SELECT id FROM post_comments WHERE post_id = ?)`,
+        args: [params.id, params.id]
+      },
       { sql: 'DELETE FROM post_comments WHERE post_id = ?', args: [params.id] },
       { sql: 'DELETE FROM post_reposts WHERE post_id = ?', args: [params.id] },
       { sql: 'DELETE FROM post_hashtags WHERE post_id = ?', args: [params.id] },
       { sql: 'DELETE FROM post_reports WHERE post_id = ?', args: [params.id] },
-      { sql: 'DELETE FROM notifications WHERE entity_id = ?', args: [params.id] },
       { sql: 'DELETE FROM posts WHERE id = ?', args: [params.id] }
     ], 'write');
 
