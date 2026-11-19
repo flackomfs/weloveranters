@@ -2,9 +2,16 @@
 
 import Image from 'next/image';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { RichText } from '@/components/RichText';
 import { getFirebaseAuth } from '@/lib/firebase-client';
 import { parseSupportBotCommand } from '@/lib/support-bot-command';
+
+const promptStarters = [
+  { label: 'I need to vent', content: 'I need to vent about: ' },
+  { label: 'I want advice', content: 'I want advice about: ' },
+  { label: "I'm celebrating", content: "I'm celebrating: " }
+];
 
 export function PostComposer({ onPosted }: { onPosted: () => void }) {
   const [content, setContent] = useState('');
@@ -14,6 +21,8 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isDraftReady, setIsDraftReady] = useState(false);
   const [draftStatus, setDraftStatus] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isLargePost = content.trimStart().startsWith('#');
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -162,6 +171,14 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
     }
   }
 
+  function choosePromptStarter(starter: string) {
+    setContent(starter);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(starter.length, starter.length);
+    });
+  }
+
   return (
     <form onSubmit={handleSubmit} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 sm:rounded-2xl sm:p-3">
       <div className="mb-2 flex items-center gap-2.5">
@@ -175,7 +192,26 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
         <p className="text-xs font-medium text-slate-700 sm:text-sm">{user?.displayName || user?.email || 'Share a rant'}</p>
       </div>
 
+      {!content.trim() ? (
+        <div className="mb-2">
+          <p className="mb-1.5 text-xs font-semibold text-slate-600">Need a starting point?</p>
+          <div className="flex flex-wrap gap-1.5">
+            {promptStarters.map((starter) => (
+              <button
+                key={starter.label}
+                type="button"
+                onClick={() => choosePromptStarter(starter.content)}
+                className="rounded-full border border-violet-200 bg-white px-3 py-1.5 text-xs font-medium text-violet-700 transition hover:bg-violet-50"
+              >
+                {starter.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <textarea
+        ref={textareaRef}
         value={content}
         onChange={(event) => setContent(event.target.value)}
         placeholder={!user ? 'Write a draft. Sign in to publish it.' : 'What is weighing on your mind today?'}
@@ -184,9 +220,16 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
         disabled={!isAuthReady}
         className="w-full resize-none rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-800 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:cursor-not-allowed disabled:bg-slate-100 sm:p-3"
       />
-      <p className="mt-1 text-[10px] leading-4 text-slate-500 sm:text-xs">
-        Start with <span className="font-semibold">#sad</span> or <span className="font-semibold">#rant</span> for a public Kumusta Bot reply. Posts starting with # appear slightly larger.
+      <p className="mt-1 text-xs leading-5 text-slate-500">
+        Posts are public, so avoid details you do not want everyone to see. Use <span className="font-semibold">#happy</span>, <span className="font-semibold">#sad</span>, <span className="font-semibold">#malungkot</span>, <span className="font-semibold">#stressed</span>, <span className="font-semibold">#angry</span>, or <span className="font-semibold">#rant</span> for a public bot reply; you will confirm before text is sent to Gemini.
       </p>
+
+      {isLargePost ? (
+        <div aria-label="Post preview" className="mt-2 rounded-xl border border-violet-200 bg-white p-2.5">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Large-text preview</p>
+          <p className="whitespace-pre-wrap break-words text-base leading-6 text-slate-800"><RichText text={content} /></p>
+        </div>
+      ) : null}
 
       <div className="mt-2 flex items-center justify-between gap-3 sm:mt-3">
         <p className="text-[10px] text-slate-500 sm:text-xs">{!user ? 'You need to sign in before posting.' : 'Keep it honest, kind, and respectful.'}</p>

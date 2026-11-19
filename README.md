@@ -67,6 +67,8 @@ Set a strong `CRON_SECRET` in Vercel environment variables so scheduled requests
 
 Users can start a post with `#sad`, another recognized emotion hashtag, or `#rant` to request a supportive response in the rant’s language. The composer asks for confirmation because the public rant is sent to Google Gemini and the response is published as a separate public Kumusta Bot post linked to the original. `#rant` asks Gemini to infer the emotion; an emotion hashtag supplies it directly. Posts beginning with `#` render slightly larger. Set `GEMINI_API_KEY` in Vercel to enable replies.
 
+The composer includes prompt starters, a live preview for larger `#` posts, and a reminder that posts are public. Signed-in users see a brief confetti celebration after login or when reopening the site; it respects reduced-motion preferences.
+
 ## Current pages
 - `/` landing page
 - `/feed` feed view

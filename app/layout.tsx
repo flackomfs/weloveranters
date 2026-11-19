@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { ThemeProvider } from '@/components/ThemeProvider';
+import { WelcomeConfetti } from '@/components/WelcomeConfetti';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -10,7 +11,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body><ThemeProvider>{children}</ThemeProvider></body>
+      <body>
+        <ThemeProvider>
+          {children}
+          <WelcomeConfetti />
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

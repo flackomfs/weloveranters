@@ -2,9 +2,9 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import { createUserWithEmailAndPassword, GoogleAuthProvider, onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import logo from '@/src/images/logo.png';
 import { getFirebaseAuth } from '@/lib/firebase-client';
 
@@ -16,6 +16,15 @@ export function AuthScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const auth = getFirebaseAuth();
+    if (!auth) return;
+
+    return onAuthStateChanged(auth, (user) => {
+      if (user) router.replace('/feed');
+    });
+  }, [router]);
 
   async function handleGoogleSignIn() {
     const auth = getFirebaseAuth();

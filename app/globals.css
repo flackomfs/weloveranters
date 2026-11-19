@@ -25,6 +25,22 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+@keyframes weloveranters-confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, -10vh, 0) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--confetti-drift), 110vh, 0) rotate(var(--confetti-spin));
+  }
+}
+
+.welcome-confetti-piece {
+  animation: weloveranters-confetti-fall 3s ease-in forwards;
+  will-change: transform, opacity;
+}
+
 html[data-theme-active='true'] [class~='bg-violet-500'] {
   background-color: var(--theme-primary);
 }
