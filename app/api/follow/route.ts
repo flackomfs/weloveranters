@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { verifyIdToken } from '@/lib/firebase';
 import { notificationStatement } from '@/lib/notifications';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
+import { sendPushNotifications } from '@/lib/web-push';
 
 export async function POST(request: Request) {
   if (!tursoClient) return NextResponse.json({ error: 'Follow storage is unavailable.' }, { status: 503 });
@@ -47,16 +48,22 @@ export async function POST(request: Request) {
         END WHERE id = ?`,
       args: [countDelta, user.uid]
     };
+    const notificationId = `${isFollowing ? 'unfollow' : 'follow'}_${crypto.randomUUID()}`;
+    const notification = notificationStatement({
+      id: notificationId,
+      recipientId: targetId,
+      actorId: user.uid,
+      type: isFollowing ? 'unfollow' : 'follow',
+      entityId: null,
+      createdAt: new Date().toISOString()
+    });
 
     if (isFollowing) {
       await tursoClient.batch([
         { sql: 'DELETE FROM follows WHERE follower_id = ? AND following_id = ?', args: [user.uid, targetId] },
         updateFollowerCount,
         updateFollowingCount,
-        notificationStatement({
-          id: `unfollow_${crypto.randomUUID()}`, recipientId: targetId, actorId: user.uid,
-          type: 'unfollow', entityId: null, createdAt: new Date().toISOString()
-        })
+        notification
       ], 'write');
     } else {
       await tursoClient.batch([
@@ -66,13 +73,11 @@ export async function POST(request: Request) {
         },
         updateFollowerCount,
         updateFollowingCount,
-        notificationStatement({
-          id: `follow_${crypto.randomUUID()}`, recipientId: targetId, actorId: user.uid,
-          type: 'follow', entityId: null, createdAt: new Date().toISOString()
-        })
+        notification
       ], 'write');
     }
 
+    await sendPushNotifications(tursoClient, [notificationId]);
     return NextResponse.json({ following: !isFollowing });
   } catch (error) {
     console.error('Unable to update follow:', error instanceof Error ? error.message : 'Unknown error');

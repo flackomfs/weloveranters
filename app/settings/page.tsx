@@ -8,6 +8,7 @@ import { signOut } from 'firebase/auth';
 import { Check, ChevronDown, LogOut, Palette, Sparkles, UserRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/Sidebar';
+import { PushNotificationControl } from '@/components/PushNotificationControl';
 import { useTheme } from '@/components/ThemeProvider';
 import { getFirebaseAuth } from '@/lib/firebase-client';
 import { THEME_PALETTES } from '@/lib/themes';
@@ -508,6 +509,7 @@ export default function SettingsPage() {
                 </button>
                 {preferenceMessage ? <p role="status" className="text-sm text-emerald-300">{preferenceMessage}</p> : null}
               </div>
+              <PushNotificationControl user={user} />
               </div>
             </section>
 

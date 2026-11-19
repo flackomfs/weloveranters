@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { isAdminUid } from '@/lib/admin';
 import { verifyIdToken } from '@/lib/firebase';
-import { mentionNotificationStatements, notificationStatement } from '@/lib/notifications';
+import { mentionNotificationStatements, notificationIdsFromStatements, notificationStatement } from '@/lib/notifications';
 import { getAvailableDisplayName } from '@/lib/profile-identity';
 import { generateSupportBotReply } from '@/lib/gemini-support-bot';
 import { parseSupportBotCommand } from '@/lib/support-bot-command';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
+import { sendPushNotifications } from '@/lib/web-push';
 
 const supportBotUserId = 'system:tagalog-mood-bot';
 
@@ -198,7 +199,10 @@ export async function POST(request: Request) {
       createdAt
     }));
     notificationStatements.push(...await mentionNotificationStatements(tursoClient, content, user.uid, id, createdAt));
-    if (notificationStatements.length) await tursoClient.batch(notificationStatements, 'write');
+    if (notificationStatements.length) {
+      await tursoClient.batch(notificationStatements, 'write');
+      await sendPushNotifications(tursoClient, notificationIdsFromStatements(notificationStatements));
+    }
 
     let botReplied = false;
     let botReplyError = '';

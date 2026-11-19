@@ -43,6 +43,13 @@ export function notificationStatement(notification: NotificationInput) {
   };
 }
 
+export function notificationIdsFromStatements(statements: readonly ReturnType<typeof notificationStatement>[]) {
+  return statements.flatMap((statement) => {
+    const id = statement.args[0];
+    return typeof id === 'string' ? [id] : [];
+  });
+}
+
 export async function mentionNotificationStatements(
   client: Client,
   content: string,

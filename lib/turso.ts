@@ -221,7 +221,19 @@ export async function initTursoSchema() {
         );
       `);
 
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+          endpoint TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          p256dh TEXT NOT NULL,
+          auth TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS notifications_recipient_created_idx ON notifications (recipient_id, created_at);');
+      await tursoClient.execute('CREATE INDEX IF NOT EXISTS web_push_subscriptions_user_id_idx ON web_push_subscriptions (user_id);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS user_verification_requests_status_created_idx ON user_verification_requests (status, created_at);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS blocked_users_blocked_idx ON blocked_users (blocked_id, blocker_id);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_reports_status_created_idx ON post_reports (status, created_at);');

@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { isAdminUid } from '@/lib/admin';
 import { verifyIdToken } from '@/lib/firebase';
-import { mentionNotificationStatements, notificationStatement } from '@/lib/notifications';
+import { mentionNotificationStatements, notificationIdsFromStatements, notificationStatement } from '@/lib/notifications';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
+import { sendPushNotifications } from '@/lib/web-push';
 
 type RouteContext = { params: { id: string } };
 
@@ -95,14 +96,18 @@ export async function POST(request: Request, { params }: RouteContext) {
       const statements: Array<{ sql: string; args: (string | number | null)[] }> = [
         { sql: 'UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id = ?', args: [params.id] }
       ];
+      const notificationIds: string[] = [];
       if (postAuthorId !== user.uid) {
+        const notificationId = `like_${crypto.randomUUID()}`;
+        notificationIds.push(notificationId);
         statements.push(notificationStatement({
-          id: `like_${crypto.randomUUID()}`, recipientId: postAuthorId, actorId: user.uid,
+          id: notificationId, recipientId: postAuthorId, actorId: user.uid,
           type: 'like', entityId: params.id, createdAt: new Date().toISOString()
         }));
       }
       statements.push({ sql: 'SELECT likes FROM posts WHERE id = ?', args: [params.id] });
       const results = await tursoClient.batch(statements, 'write');
+      await sendPushNotifications(tursoClient, notificationIds);
       return NextResponse.json({ likes: Number(results[results.length - 1].rows[0]?.likes || 0) });
     }
 
@@ -143,21 +148,26 @@ export async function POST(request: Request, { params }: RouteContext) {
           args: [comment.id, comment.postId, comment.userId, comment.authorName, comment.authorUsername, comment.content, comment.createdAt, parentCommentId]
         }
       ];
+      const notificationStatements: Array<ReturnType<typeof notificationStatement>> = [];
       if (postAuthorId !== user.uid) {
-        statements.push(notificationStatement({
+        notificationStatements.push(notificationStatement({
           id: `comment_${crypto.randomUUID()}`, recipientId: postAuthorId, actorId: user.uid,
           type: 'comment', entityId: params.id, createdAt: comment.createdAt
         }));
       }
       if (parentAuthorId && parentAuthorId !== user.uid && parentAuthorId !== postAuthorId) {
-        statements.push(notificationStatement({
+        notificationStatements.push(notificationStatement({
           id: `comment_reply_${crypto.randomUUID()}`, recipientId: parentAuthorId, actorId: user.uid,
           type: 'comment', entityId: params.id, createdAt: comment.createdAt
         }));
       }
-      statements.push(...await mentionNotificationStatements(tursoClient, content, user.uid, params.id, comment.createdAt));
-      statements.push({ sql: 'SELECT COUNT(*) AS count FROM post_comments WHERE post_id = ?', args: [params.id] });
-      const results = await tursoClient.batch(statements, 'write');
+      notificationStatements.push(...await mentionNotificationStatements(tursoClient, content, user.uid, params.id, comment.createdAt));
+      const results = await tursoClient.batch([
+        ...statements,
+        ...notificationStatements,
+        { sql: 'SELECT COUNT(*) AS count FROM post_comments WHERE post_id = ?', args: [params.id] }
+      ], 'write');
+      await sendPushNotifications(tursoClient, notificationIdsFromStatements(notificationStatements));
       return NextResponse.json({ comment, comments: Number(results[results.length - 1].rows[0]?.count || 0) });
     }
 
@@ -170,18 +180,23 @@ export async function POST(request: Request, { params }: RouteContext) {
           args: [user.uid, params.id, actor.name, actor.username, new Date().toISOString()]
         }
       ];
+      const notificationStatements: Array<ReturnType<typeof notificationStatement>> = [];
       if (postAuthorId !== user.uid) {
         const notification = notificationStatement({
           id: `repost_${crypto.randomUUID()}`, recipientId: postAuthorId, actorId: user.uid,
           type: 'repost', entityId: params.id, createdAt: new Date().toISOString()
         });
-        statements.push({
+        notificationStatements.push({
           ...notification,
           sql: `${notification.sql} AND changes() > 0`
         });
       }
-      statements.push({ sql: 'SELECT COUNT(*) AS count FROM post_reposts WHERE post_id = ?', args: [params.id] });
-      const results = await tursoClient.batch(statements, 'write');
+      const results = await tursoClient.batch([
+        ...statements,
+        ...notificationStatements,
+        { sql: 'SELECT COUNT(*) AS count FROM post_reposts WHERE post_id = ?', args: [params.id] }
+      ], 'write');
+      await sendPushNotifications(tursoClient, notificationIdsFromStatements(notificationStatements));
       return NextResponse.json({ reposted: true, reposts: Number(results[results.length - 1].rows[0]?.count || 0) });
     }
 

@@ -52,8 +52,13 @@ Notes:
 - `ADMIN_UIDS` is a comma- or whitespace-separated list of Firebase Authentication UIDs allowed to override displayed follower and following counts on profiles. Keep this server-only; it must not use a `NEXT_PUBLIC_` prefix.
 - `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` come from your Turso database setup.
 - `CRON_SECRET` protects the scheduled Tagalog mood bot endpoint. Set it in Vercel; the scheduled request must send it as a bearer token.
+- `WEB_PUSH_VAPID_PUBLIC_KEY` and `WEB_PUSH_VAPID_PRIVATE_KEY` enable browser push notifications. Generate them once with `npx web-push generate-vapid-keys`, keep the private key server-only, and set both in Vercel. `WEB_PUSH_SUBJECT` is the site's HTTPS URL or a contact `mailto:` address.
 - `GEMINI_API_KEY` enables opt-in support replies. Keep it server-only; do not use a `NEXT_PUBLIC_` prefix. `GEMINI_MODEL` is optional and defaults to `gemini-3.1-flash-lite`.
-- No Firebase Analytics or messaging variables are required for this app.
+- No Firebase Analytics or Firebase Cloud Messaging variables are required for this app.
+
+## Device push notifications
+
+Users can enable browser push notifications from Settings → Notification preferences. Push alerts are opt-in per device, follow the user's existing notification categories, and open the in-app notifications page when clicked. The browser asks for notification permission only after the user enables them. Web Push works in supported desktop and Android browsers; iPhone and iPad users need to add the site to their Home Screen and open it as a web app.
 
 ## Tagalog mood bot
 
@@ -67,7 +72,7 @@ Set a strong `CRON_SECRET` in Vercel environment variables so scheduled requests
 
 Users can start a post with `#sad`, another recognized emotion hashtag, or `#rant` to request a supportive response in the rant’s language. The composer asks for confirmation because the public rant is sent to Google Gemini and the response is published as a separate public Kumusta Bot post linked to the original. `#rant` asks Gemini to infer the emotion; an emotion hashtag supplies it directly. Posts beginning with `#` render slightly larger. Set `GEMINI_API_KEY` in Vercel to enable replies.
 
-The composer includes prompt starters, a live preview for larger `#` posts, and a reminder that posts are public. Signed-in users see a brief confetti celebration after login or when reopening the site; it respects reduced-motion preferences.
+The composer includes prompt starters and a live preview for larger `#` posts. Signed-in users see a brief falling confetti celebration after login or when reopening the site.
 
 ## Current pages
 - `/` landing page
