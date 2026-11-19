@@ -27,18 +27,58 @@ body {
 
 @keyframes weloveranters-confetti-fall {
   0% {
+    opacity: 0;
+    transform: translate3d(0, -8vh, 0);
+  }
+  8% {
     opacity: 1;
-    transform: translate3d(0, -10vh, 0) rotate(0deg);
   }
   100% {
     opacity: 0;
-    transform: translate3d(var(--confetti-drift), 110vh, 0) rotate(var(--confetti-spin));
+    transform: translate3d(var(--confetti-drift), 110vh, 0);
+  }
+}
+
+@keyframes weloveranters-confetti-tumble {
+  from {
+    transform: perspective(120px) rotateX(0deg) rotateY(0deg) rotateZ(0deg);
+  }
+  to {
+    transform: perspective(120px) rotateX(540deg) rotateY(720deg) rotateZ(var(--confetti-spin));
   }
 }
 
 .welcome-confetti-piece {
-  animation: weloveranters-confetti-fall 3s ease-in forwards;
+  animation: weloveranters-confetti-fall var(--confetti-fall-duration) cubic-bezier(0.35, 0.05, 0.65, 1) var(--confetti-delay) both;
   will-change: transform, opacity;
+}
+
+.welcome-confetti-piece::before {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 0.38), transparent 42%, rgb(15 23 42 / 0.18)),
+    var(--confetti-color);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.35);
+  animation: weloveranters-confetti-tumble var(--confetti-tumble-duration) linear infinite;
+  transform-style: preserve-3d;
+}
+
+.welcome-confetti-piece[data-confetti-shape='square']::before {
+  border-radius: 1px;
+}
+
+.welcome-confetti-piece[data-confetti-shape='ribbon']::before {
+  border-radius: 2px;
+}
+
+.welcome-confetti-piece[data-confetti-shape='triangle']::before {
+  clip-path: polygon(50% 0, 100% 100%, 0 82%);
+}
+
+.welcome-confetti-piece[data-confetti-shape='circle']::before {
+  border-radius: 50%;
 }
 
 html[data-theme-active='true'] [class~='bg-violet-500'] {
@@ -102,6 +142,16 @@ textarea:focus-visible {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .welcome-confetti-piece {
+    animation-duration: var(--confetti-fall-duration) !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .welcome-confetti-piece::before {
+    animation-duration: var(--confetti-tumble-duration) !important;
+    animation-iteration-count: infinite !important;
   }
 }
 
