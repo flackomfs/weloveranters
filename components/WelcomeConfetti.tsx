@@ -1,12 +1,14 @@
 'use client';
 
 import { onAuthStateChanged } from 'firebase/auth';
+import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { getFirebaseAuth } from '@/lib/firebase-client';
 
 type ConfettiPiece = {
   id: number;
   left: number;
+  top: number;
   width: number;
   height: number;
   color: string;
@@ -22,10 +24,11 @@ type ConfettiStyle = CSSProperties & {
 
 const colors = ['#8b5cf6', '#ec4899', '#38bdf8', '#fbbf24', '#34d399', '#fb7185'];
 
-function createConfettiPieces(): ConfettiPiece[] {
+function createConfettiPieces(prefersReducedMotion: boolean): ConfettiPiece[] {
   return Array.from({ length: 140 }, (_, id) => ({
     id,
     left: Math.random() * 100,
+    top: prefersReducedMotion ? Math.random() * 100 : 0,
     width: 4 + Math.random() * 4,
     height: 6 + Math.random() * 6,
     color: colors[Math.floor(Math.random() * colors.length)],
@@ -36,26 +39,31 @@ function createConfettiPieces(): ConfettiPiece[] {
 }
 
 export function WelcomeConfetti() {
+  const pathname = usePathname();
   const [pieces, setPieces] = useState<ConfettiPiece[]>([]);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const hasCelebrated = useRef(false);
 
   useEffect(() => {
     const auth = getFirebaseAuth();
     if (!auth) return;
 
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setPrefersReducedMotion(window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     return onAuthStateChanged(auth, (user) => {
+      setIsAuthenticated(Boolean(user));
       if (!user) {
         hasCelebrated.current = false;
         setPieces([]);
-        return;
       }
-
-      if (hasCelebrated.current || prefersReducedMotion) return;
-      hasCelebrated.current = true;
-      setPieces(createConfettiPieces());
     });
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated || pathname !== '/feed' || hasCelebrated.current) return;
+    hasCelebrated.current = true;
+    setPieces(createConfettiPieces(prefersReducedMotion));
+  }, [isAuthenticated, pathname, prefersReducedMotion]);
 
   useEffect(() => {
     if (!pieces.length) return;
@@ -70,6 +78,7 @@ export function WelcomeConfetti() {
       {pieces.map((piece) => {
         const style: ConfettiStyle = {
           left: `${piece.left}%`,
+          top: prefersReducedMotion ? `${piece.top}%` : '-0.75rem',
           width: `${piece.width}px`,
           height: `${piece.height}px`,
           backgroundColor: piece.color,
@@ -77,7 +86,13 @@ export function WelcomeConfetti() {
           '--confetti-drift': `${piece.drift}vw`,
           '--confetti-spin': `${piece.spin}deg`
         };
-        return <span key={piece.id} className="welcome-confetti-piece absolute -top-3" style={style} />;
+        return (
+          <span
+            key={piece.id}
+            className={`absolute ${prefersReducedMotion ? '' : 'welcome-confetti-piece'}`}
+            style={style}
+          />
+        );
       })}
     </div>
   );

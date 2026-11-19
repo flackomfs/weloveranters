@@ -7,6 +7,11 @@ import { RichText } from '@/components/RichText';
 import { getFirebaseAuth } from '@/lib/firebase-client';
 import { parseSupportBotCommand } from '@/lib/support-bot-command';
 
+type ComposerProfile = {
+  name: string;
+  avatarUrl: string;
+};
+
 const promptStarters = [
   { label: 'I need to vent', content: 'I need to vent about: ' },
   { label: 'I want advice', content: 'I want advice about: ' },
@@ -18,6 +23,9 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<ComposerProfile | null>(null);
+  const [isProfileLoaded, setIsProfileLoaded] = useState(false);
+  const [profileError, setProfileError] = useState('');
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isDraftReady, setIsDraftReady] = useState(false);
   const [draftStatus, setDraftStatus] = useState('');
@@ -28,13 +36,55 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
     const auth = getFirebaseAuth();
     if (!auth) {
       setIsAuthReady(true);
+      setIsProfileLoaded(true);
       return;
     }
 
-    return onAuthStateChanged(auth, (nextUser) => {
+    let active = true;
+    let profileRequest = 0;
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
       setIsAuthReady(true);
+      setProfile(null);
+      setProfileError('');
+      setIsProfileLoaded(!nextUser);
+      const requestId = ++profileRequest;
+      if (!nextUser) return;
+
+      void (async () => {
+        try {
+          const token = await nextUser.getIdToken();
+          const response = await fetch('/api/profile', {
+            cache: 'no-store',
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Unable to load your profile.');
+          if (
+            !data.profile ||
+            typeof data.profile.name !== 'string' ||
+            typeof data.profile.avatarUrl !== 'string'
+          ) {
+            throw new Error('The profile response is incomplete.');
+          }
+          if (active && requestId === profileRequest) {
+            setProfile({ name: data.profile.name, avatarUrl: data.profile.avatarUrl });
+          }
+        } catch (error) {
+          if (active && requestId === profileRequest) {
+            console.error('Unable to load profile for post composer:', error);
+            setProfileError('Unable to load your latest profile details.');
+          }
+        } finally {
+          if (active && requestId === profileRequest) setIsProfileLoaded(true);
+        }
+      })();
     });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -179,18 +229,32 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
     });
   }
 
+  const avatarUrl = profile
+    ? profile.avatarUrl
+    : user && isProfileLoaded && !profileError ? user.photoURL || '' : '';
+  const displayName = profile?.name || (
+    !user
+      ? 'Share a rant'
+      : profileError
+        ? 'Profile unavailable'
+        : isProfileLoaded
+          ? user.displayName || user.email || 'Your profile'
+          : 'Loading profile...'
+  );
+
   return (
     <form onSubmit={handleSubmit} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 sm:rounded-2xl sm:p-3">
       <div className="mb-2 flex items-center gap-2.5">
-        {user?.photoURL ? (
-          <Image src={user.photoURL} alt="" width={36} height={36} unoptimized className="h-9 w-9 rounded-full object-cover" />
+        {avatarUrl ? (
+          <Image src={avatarUrl} alt="" width={36} height={36} unoptimized className="h-9 w-9 rounded-full object-cover" />
         ) : (
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-pink-500 text-xs font-bold text-white">
-            {(user?.displayName || user?.email || 'U').slice(0, 1).toUpperCase()}
+            {(displayName || 'U').slice(0, 1).toUpperCase()}
           </div>
         )}
-        <p className="text-xs font-medium text-slate-700 sm:text-sm">{user?.displayName || user?.email || 'Share a rant'}</p>
+        <p className="text-xs font-medium text-slate-700 sm:text-sm">{displayName}</p>
       </div>
+      {profileError ? <p role="alert" className="mb-2 text-xs text-rose-600">{profileError}</p> : null}
 
       {!content.trim() ? (
         <div className="mb-2">
@@ -220,9 +284,6 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
         disabled={!isAuthReady}
         className="w-full resize-none rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-800 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:cursor-not-allowed disabled:bg-slate-100 sm:p-3"
       />
-      <p className="mt-1 text-xs leading-5 text-slate-500">
-        Posts are public, so avoid details you do not want everyone to see. Use <span className="font-semibold">#happy</span>, <span className="font-semibold">#sad</span>, <span className="font-semibold">#malungkot</span>, <span className="font-semibold">#stressed</span>, <span className="font-semibold">#angry</span>, or <span className="font-semibold">#rant</span> for a public bot reply; you will confirm before text is sent to Gemini.
-      </p>
 
       {isLargePost ? (
         <div aria-label="Post preview" className="mt-2 rounded-xl border border-violet-200 bg-white p-2.5">
