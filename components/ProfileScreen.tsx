@@ -33,7 +33,7 @@ type Profile = {
   followersOverride: number | null;
   followingOverride: number | null;
   canManageStats: boolean;
-  verificationBadge: 'boy' | 'girl' | 'moderator' | null;
+  verificationBadge: 'man' | 'woman' | 'moderator' | null;
   viewerBlocked: boolean;
   blockedViewer: boolean;
 };
@@ -426,7 +426,7 @@ export function ProfileScreen({ username }: { username?: string }) {
                           <Image
                             src={profile.verificationBadge === 'moderator'
                               ? '/badges/moderator.gif'
-                              : profile.verificationBadge === 'boy' ? '/badges/boys-verified.gif' : '/badges/girls-verified.gif'}
+                              : profile.verificationBadge === 'man' ? '/badges/boys-verified.gif' : '/badges/girls-verified.gif'}
                             alt={`${profile.verificationBadge} verified badge`}
                             width={28}
                             height={28}

@@ -3,7 +3,11 @@ import { isAdminUid } from '@/lib/admin';
 import { verifyIdToken } from '@/lib/firebase';
 import { mentionNotificationStatements, notificationStatement } from '@/lib/notifications';
 import { getAvailableDisplayName } from '@/lib/profile-identity';
+import { generateSupportBotReply } from '@/lib/gemini-support-bot';
+import { parseSupportBotCommand } from '@/lib/support-bot-command';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
+
+const supportBotUserId = 'system:tagalog-mood-bot';
 
 function getBearerToken(request: Request) {
   const authorization = request.headers.get('authorization') || '';
@@ -46,6 +50,10 @@ export async function GET(request: Request) {
         )
         SELECT e.postId AS id, e.entryId, e.content, e.createdAt, e.authorId AS userId,
           p.likes, p.updated_at AS updatedAt, u.display_name AS authorName, u.username AS authorUsername,
+          u.is_bot AS isBot,
+          source_post.id AS responseToPostId,
+          source_post.content AS responseToContent,
+          source_user.display_name AS responseToAuthorName,
           u.avatar_url AS avatarUrl, vr.requested_badge AS verificationBadge,
           e.reposterId AS repostedById,
           COALESCE(ru.display_name, e.reposterName) AS repostedByName,
@@ -62,12 +70,15 @@ export async function GET(request: Request) {
         LEFT JOIN user_verification_requests vr
           ON vr.user_id = e.authorId AND vr.status = 'approved'
         LEFT JOIN users ru ON ru.id = e.reposterId
+        LEFT JOIN post_bot_responses bot_response ON bot_response.reply_post_id = e.postId
+        LEFT JOIN posts source_post ON source_post.id = bot_response.source_post_id
+        LEFT JOIN users source_user ON source_user.id = source_post.user_id
         WHERE (? = '' OR COALESCE(ru.username, e.reposterUsername, u.username) = ?)
           AND (? <> '' OR e.reposterId IS NULL)
           AND (? = '' OR NOT EXISTS (
             SELECT 1 FROM blocked_users b
-            WHERE (b.blocker_id = ? AND b.blocked_id IN (e.authorId, e.reposterId))
-              OR (b.blocked_id = ? AND b.blocker_id IN (e.authorId, e.reposterId))
+            WHERE (b.blocker_id = ? AND b.blocked_id IN (e.authorId, e.reposterId, source_post.user_id))
+              OR (b.blocked_id = ? AND b.blocker_id IN (e.authorId, e.reposterId, source_post.user_id))
           ))
           AND (? <> 'following' OR e.authorId = ? OR EXISTS (
             SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = e.authorId
@@ -82,14 +93,18 @@ export async function GET(request: Request) {
       avatarUrl: String(row.avatarUrl || '').startsWith('data:image/')
         ? `/api/profile/photo?uid=${encodeURIComponent(String(row.userId))}`
         : row.avatarUrl,
+      responseToPostId: row.responseToPostId ? String(row.responseToPostId) : null,
+      responseToContent: row.responseToContent ? String(row.responseToContent) : null,
+      responseToAuthorName: row.responseToAuthorName ? String(row.responseToAuthorName) : null,
       tags: (String(row.content).match(/#[a-zA-Z0-9_]+/g) || []).map((tag) => tag.slice(1).toLowerCase()),
       likes: Number(row.likes || 0),
       comments: Number(row.comments || 0),
       reposts: Number(row.reposts || 0),
       isReposted: Number(row.isReposted) > 0,
+      isBot: Number(row.isBot) > 0,
       verificationBadge: isAdminUid(String(row.userId))
         ? 'moderator'
-        : row.verificationBadge === 'boy' || row.verificationBadge === 'girl' ? row.verificationBadge : null,
+        : row.verificationBadge === 'man' || row.verificationBadge === 'woman' ? row.verificationBadge : null,
       canDelete: Boolean(viewerId && (isAdminUid(viewerId) || String(row.userId) === viewerId)),
       canEdit: Boolean(viewerId && String(row.userId) === viewerId && Date.now() - Date.parse(String(row.createdAt)) < 15 * 60 * 1000),
       canReport: Boolean(viewerId && String(row.userId) !== viewerId)
@@ -110,6 +125,7 @@ export async function POST(request: Request) {
     if (!content || content.length > 2000) {
       return NextResponse.json({ error: 'Posts must be between 1 and 2000 characters.' }, { status: 400 });
     }
+    const supportCommand = parseSupportBotCommand(content);
 
     if (!tursoClient) {
       return NextResponse.json({ error: 'Post storage is unavailable.' }, { status: 503 });
@@ -123,6 +139,9 @@ export async function POST(request: Request) {
       user = await verifyIdToken(token);
     } catch {
       return NextResponse.json({ error: 'Your session expired. Sign in again.' }, { status: 401 });
+    }
+    if (supportCommand && body?.generateBotReply !== true) {
+      return NextResponse.json({ error: 'Confirm that this post will be sent to Gemini for a public bot reply.' }, { status: 400 });
     }
 
     await initTursoSchema();
@@ -181,7 +200,53 @@ export async function POST(request: Request) {
     notificationStatements.push(...await mentionNotificationStatements(tursoClient, content, user.uid, id, createdAt));
     if (notificationStatements.length) await tursoClient.batch(notificationStatements, 'write');
 
-    return NextResponse.json({ ok: true, message: 'Rant created successfully.', post: { id, content, createdAt, userId: user.uid } });
+    let botReplied = false;
+    let botReplyError = '';
+    if (supportCommand) {
+      try {
+        const replyContent = await generateSupportBotReply(supportCommand);
+        const botPostId = `rant_${crypto.randomUUID()}`;
+        const botCreatedAt = new Date().toISOString();
+        const botHashtags = Array.from(new Set(
+          (replyContent.match(/#[a-zA-Z0-9_]+/g) || []).map((tag) => tag.slice(1).toLowerCase())
+        ));
+        await tursoClient.batch([
+          {
+            sql: `INSERT INTO users (id, email, display_name, username, avatar_url, is_bot)
+              VALUES (?, NULL, 'Kumusta Bot', 'kumusta_bot_weloveranters', '', 1)
+              ON CONFLICT(id) DO UPDATE SET
+                display_name = 'Kumusta Bot',
+                username = 'kumusta_bot_weloveranters',
+                is_bot = 1`,
+            args: [supportBotUserId]
+          },
+          {
+            sql: 'INSERT INTO posts (id, user_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+            args: [botPostId, supportBotUserId, replyContent, botCreatedAt, botCreatedAt]
+          },
+          {
+            sql: 'INSERT INTO post_bot_responses (source_post_id, reply_post_id, created_at) VALUES (?, ?, ?)',
+            args: [id, botPostId, botCreatedAt]
+          },
+          ...botHashtags.map((hashtag) => ({
+            sql: 'INSERT INTO post_hashtags (hashtag, post_id, created_at) VALUES (?, ?, ?)',
+            args: [hashtag, botPostId, botCreatedAt]
+          }))
+        ], 'write');
+        botReplied = true;
+      } catch (botError) {
+        console.error('Unable to generate Kumusta Bot reply:', botError instanceof Error ? botError.message : 'Unknown Gemini error');
+        botReplyError = 'Kumusta Bot could not reply right now. Your rant was still posted.';
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: botReplied ? 'Your rant and Kumusta Bot reply are live.' : 'Rant created successfully.',
+      botReplied,
+      botReplyError,
+      post: { id, content, createdAt, userId: user.uid }
+    });
   } catch (error) {
     console.error('Unable to create post:', error instanceof Error ? error.message : 'Unknown database error');
     return NextResponse.json({

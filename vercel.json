@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/automation/tagalog-mood",
+      "schedule": "0 */2 * * *"
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { useEffect, useState, type FormEvent } from 'react';
 import { getFirebaseAuth } from '@/lib/firebase-client';
+import { parseSupportBotCommand } from '@/lib/support-bot-command';
 
 export function PostComposer({ onPosted }: { onPosted: () => void }) {
   const [content, setContent] = useState('');
@@ -125,6 +126,11 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
       return;
     }
 
+    const supportCommand = parseSupportBotCommand(content);
+    if (supportCommand && !window.confirm('This post will be public and sent to Google Gemini to create a separate public reply from Kumusta Bot. Continue?')) {
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -132,7 +138,7 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
       const response = await fetch('/api/posts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ content })
+        body: JSON.stringify({ content, generateBotReply: Boolean(supportCommand) })
       });
 
       const data = await response.json();
@@ -142,7 +148,7 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
       }
 
       setContent('');
-      setMessage(data.message || 'Your rant is live.');
+      setMessage(data.botReplyError || data.message || 'Your rant is live.');
       try {
         window.localStorage.removeItem('weloveranters-post-draft');
       } catch {
@@ -178,6 +184,9 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
         disabled={!isAuthReady}
         className="w-full resize-none rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-800 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:cursor-not-allowed disabled:bg-slate-100 sm:p-3"
       />
+      <p className="mt-1 text-[10px] leading-4 text-slate-500 sm:text-xs">
+        Start with <span className="font-semibold">#sad</span> or <span className="font-semibold">#rant</span> for a public Kumusta Bot reply. Posts starting with # appear slightly larger.
+      </p>
 
       <div className="mt-2 flex items-center justify-between gap-3 sm:mt-3">
         <p className="text-[10px] text-slate-500 sm:text-xs">{!user ? 'You need to sign in before posting.' : 'Keep it honest, kind, and respectful.'}</p>

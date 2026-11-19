@@ -23,7 +23,11 @@ export type FeedPost = {
   repostedById: string | null;
   repostedByName: string | null;
   repostedByUsername: string | null;
-  verificationBadge: 'boy' | 'girl' | 'moderator' | null;
+  responseToPostId: string | null;
+  responseToContent: string | null;
+  responseToAuthorName: string | null;
+  isBot: boolean;
+  verificationBadge: 'man' | 'woman' | 'moderator' | null;
   isReposted: boolean;
   canDelete: boolean;
   canEdit: boolean;
@@ -64,6 +68,7 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
   const [error, setError] = useState('');
   const pendingLikes = useRef(0);
   const commentInputRef = useRef<HTMLInputElement>(null);
+  const isLargePost = post.content.trimStart().startsWith('#');
 
   useEffect(() => {
     if (pendingLikes.current === 0) setLikes(post.likes);
@@ -240,7 +245,7 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
   const topLevelComments = comments.filter((comment) => !comment.parentCommentId);
 
   return (
-    <article className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 sm:rounded-3xl sm:p-4">
+    <article id={`post-${post.id}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 sm:rounded-3xl sm:p-4">
       {post.repostedByName ? (
         <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-500">
           <Repeat2 className="h-3.5 w-3.5" />
@@ -256,6 +261,17 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
             </Link>
           ) : <span className="font-semibold text-slate-700">{post.authorName || 'Member'}</span>}
         </p>
+      ) : null}
+
+      {post.responseToPostId ? (
+        <div className="mb-2 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 sm:mb-3">
+          <p className="text-xs font-semibold text-sky-900">
+            Kumusta Bot responding to {post.responseToAuthorName || 'a community member'}’s post
+          </p>
+          <a href={`#post-${post.responseToPostId}`} className="mt-1 block line-clamp-2 text-xs text-sky-800 hover:underline">
+            {post.responseToContent}
+          </a>
+        </div>
       ) : null}
 
       <div className="flex items-start gap-2 sm:gap-3">
@@ -277,7 +293,7 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
               <Image
                 src={post.verificationBadge === 'moderator'
                   ? '/badges/moderator.gif'
-                  : post.verificationBadge === 'boy' ? '/badges/boys-verified.gif' : '/badges/girls-verified.gif'}
+                  : post.verificationBadge === 'man' ? '/badges/boys-verified.gif' : '/badges/girls-verified.gif'}
                 alt={`${post.verificationBadge} verified badge`}
                 width={18}
                 height={18}
@@ -286,6 +302,7 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
               />
             ) : null}
             {post.authorUsername ? <Link href={`/profile/${encodeURIComponent(post.authorUsername)}`} className="text-slate-500 hover:text-violet-700">@{post.authorUsername}</Link> : null}
+            {post.isBot ? <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-800">Automated bot</span> : null}
             <span className="text-slate-400">· {new Date(post.createdAt).toLocaleString()}{post.updatedAt && post.updatedAt !== post.createdAt ? ' · edited' : ''}</span>
           </div>
           {isEditing ? (
@@ -304,7 +321,7 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
               </div>
             </form>
           ) : (
-            <p className="mt-1.5 whitespace-pre-line text-sm leading-5 text-slate-700 sm:mt-2.5 sm:text-[14px] sm:leading-6"><RichText text={post.content} /></p>
+            <p className={`mt-1.5 whitespace-pre-line text-slate-700 sm:mt-2.5 ${isLargePost ? 'text-base leading-6 sm:leading-7' : 'text-sm leading-5 sm:text-[14px] sm:leading-6'}`}><RichText text={post.content} /></p>
           )}
 
           <div className="mt-2.5 flex flex-wrap items-center gap-4 text-xs text-slate-500 sm:mt-3 sm:gap-5 sm:text-sm">

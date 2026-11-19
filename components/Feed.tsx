@@ -87,6 +87,10 @@ export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
 
       <PostComposer onPosted={loadPosts} />
 
+      <p className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-900">
+        Kumusta Bot is automated. Posts starting with #sad or #rant can be sent to Gemini for a separate public reply. The bot may also publish 5–10 general support posts daily.
+      </p>
+
       <div className="mt-2 space-y-2 sm:mt-4 sm:space-y-3">
         {isLoading ? <p className="py-8 text-center text-sm text-slate-500">Loading posts...</p> : null}
         {!isLoading && error ? <p role="alert" className="py-8 text-center text-sm text-rose-600">{error}</p> : null}

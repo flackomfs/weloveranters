@@ -262,18 +262,30 @@ export async function DELETE(request: Request, { params }: RouteContext) {
       return NextResponse.json({ error: 'You can only delete your own posts.' }, { status: 403 });
     }
 
+    const linkedReplies = await tursoClient.execute({
+      sql: 'SELECT reply_post_id FROM post_bot_responses WHERE source_post_id = ?',
+      args: [params.id]
+    });
+    const postIds = [params.id, ...linkedReplies.rows.map((row) => String(row.reply_post_id))];
+    const placeholders = postIds.map(() => '?').join(', ');
+
     await tursoClient.batch([
       {
         sql: `DELETE FROM notifications
-          WHERE entity_id = ?
-            OR entity_id IN (SELECT id FROM post_comments WHERE post_id = ?)`,
-        args: [params.id, params.id]
+          WHERE entity_id IN (${placeholders})
+            OR entity_id IN (SELECT id FROM post_comments WHERE post_id IN (${placeholders}))`,
+        args: [...postIds, ...postIds]
       },
-      { sql: 'DELETE FROM post_comments WHERE post_id = ?', args: [params.id] },
-      { sql: 'DELETE FROM post_reposts WHERE post_id = ?', args: [params.id] },
-      { sql: 'DELETE FROM post_hashtags WHERE post_id = ?', args: [params.id] },
-      { sql: 'DELETE FROM post_reports WHERE post_id = ?', args: [params.id] },
-      { sql: 'DELETE FROM posts WHERE id = ?', args: [params.id] }
+      { sql: `DELETE FROM post_comments WHERE post_id IN (${placeholders})`, args: postIds },
+      { sql: `DELETE FROM post_reposts WHERE post_id IN (${placeholders})`, args: postIds },
+      { sql: `DELETE FROM post_hashtags WHERE post_id IN (${placeholders})`, args: postIds },
+      { sql: `DELETE FROM post_reports WHERE post_id IN (${placeholders})`, args: postIds },
+      {
+        sql: `DELETE FROM post_bot_responses
+          WHERE source_post_id IN (${placeholders}) OR reply_post_id IN (${placeholders})`,
+        args: [...postIds, ...postIds]
+      },
+      { sql: `DELETE FROM posts WHERE id IN (${placeholders})`, args: postIds }
     ], 'write');
 
     return NextResponse.json({ ok: true });

@@ -3,7 +3,7 @@ import { isAdminUid } from '@/lib/admin';
 import { verifyIdToken } from '@/lib/firebase';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
-type Badge = 'boy' | 'girl';
+type Badge = 'man' | 'woman';
 type RequestStatus = 'pending' | 'approved' | 'rejected';
 
 async function authenticate(request: Request) {
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     const user = await authenticate(request);
     if (!user) return NextResponse.json({ error: 'Sign in to manage verification requests.' }, { status: 401 });
 
-    const [requestResult, pendingResult] = await Promise.all([
+    const [requestResult, pendingResult, approvedResult] = await Promise.all([
       tursoClient.execute({
         sql: `SELECT requested_badge AS requestedBadge, status, created_at AS createdAt
           FROM user_verification_requests WHERE user_id = ?`,
@@ -37,13 +37,25 @@ export async function GET(request: Request) {
               ORDER BY r.created_at ASC`,
             args: []
           })
+        : Promise.resolve(null),
+      isAdminUid(user.uid)
+        ? tursoClient.execute({
+            sql: `SELECT r.user_id AS userId, r.requested_badge AS requestedBadge,
+                r.created_at AS createdAt, u.display_name AS name, u.username
+              FROM user_verification_requests r
+              INNER JOIN users u ON u.id = r.user_id
+              WHERE r.status = 'approved'
+              ORDER BY r.reviewed_at DESC, r.created_at ASC`,
+            args: []
+          })
         : Promise.resolve(null)
     ]);
 
     return NextResponse.json({
       request: requestResult.rows[0] || null,
       isAdmin: isAdminUid(user.uid),
-      pendingRequests: pendingResult?.rows || []
+      pendingRequests: pendingResult?.rows || [],
+      approvedRequests: approvedResult?.rows || []
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('Unable to load verification requests:', error instanceof Error ? error.message : 'Unknown error');
@@ -61,8 +73,8 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const badge = body?.badge;
-    if (badge !== 'boy' && badge !== 'girl') {
-      return NextResponse.json({ error: 'Choose a boy or girl badge request.' }, { status: 400 });
+    if (badge !== 'man' && badge !== 'woman') {
+      return NextResponse.json({ error: 'Choose a MAN or WOMAN badge request.' }, { status: 400 });
     }
 
     const existing = await tursoClient.execute({
@@ -109,8 +121,21 @@ export async function PUT(request: Request) {
     const body = await request.json();
     const userId = typeof body?.userId === 'string' ? body.userId : '';
     const status = body?.status;
-    if (!userId || (status !== 'approved' && status !== 'rejected')) {
+    if (!userId || (status !== 'approved' && status !== 'rejected' && status !== 'revoked')) {
       return NextResponse.json({ error: 'Choose a pending request and a valid decision.' }, { status: 400 });
+    }
+
+    if (status === 'revoked') {
+      const revokeResult = await tursoClient.execute({
+        sql: `UPDATE user_verification_requests
+          SET status = 'rejected', reviewed_at = ?, reviewed_by = ?
+          WHERE user_id = ? AND status = 'approved'`,
+        args: [new Date().toISOString(), user.uid, userId]
+      });
+      if (!revokeResult.rowsAffected) {
+        return NextResponse.json({ error: 'That user badge is no longer approved.' }, { status: 409 });
+      }
+      return NextResponse.json({ status: 'revoked' });
     }
 
     const result = await tursoClient.execute({

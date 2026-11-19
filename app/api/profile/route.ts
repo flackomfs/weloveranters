@@ -85,7 +85,7 @@ async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewer
     viewerBlocked: Number(blockState?.rows[0]?.viewerBlocked || 0) > 0,
     blockedViewer: Number(blockState?.rows[0]?.blockedViewer || 0) > 0,
     canManageStats: Boolean(viewerId && isAdminUid(viewerId)),
-    verificationBadge: isAdmin ? 'moderator' : requestedBadge === 'boy' || requestedBadge === 'girl' ? requestedBadge : null
+    verificationBadge: isAdmin ? 'moderator' : requestedBadge === 'man' || requestedBadge === 'woman' ? requestedBadge : null
   };
 }
 

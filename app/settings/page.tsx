@@ -18,7 +18,7 @@ type AccountProfile = {
   avatarUrl: string;
 };
 
-type BadgeKind = 'boy' | 'girl';
+type BadgeKind = 'man' | 'woman';
 type VerificationRequest = {
   requestedBadge: BadgeKind;
   status: 'pending' | 'approved' | 'rejected';
@@ -26,6 +26,12 @@ type VerificationRequest = {
 };
 type PendingVerificationRequest = VerificationRequest & {
   userId: string;
+  name: string | null;
+  username: string | null;
+};
+type ApprovedVerificationRequest = {
+  userId: string;
+  requestedBadge: BadgeKind;
   name: string | null;
   username: string | null;
 };
@@ -91,7 +97,8 @@ export default function SettingsPage() {
   const [verificationRequest, setVerificationRequest] = useState<VerificationRequest | null>(null);
   const [pendingVerifications, setPendingVerifications] = useState<PendingVerificationRequest[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [requestedBadge, setRequestedBadge] = useState<BadgeKind>('boy');
+  const [requestedBadge, setRequestedBadge] = useState<BadgeKind>('man');
+  const [approvedVerifications, setApprovedVerifications] = useState<ApprovedVerificationRequest[]>([]);
   const [isSubmittingVerification, setIsSubmittingVerification] = useState(false);
   const [verificationMessage, setVerificationMessage] = useState('');
   const [verificationError, setVerificationError] = useState('');
@@ -137,10 +144,11 @@ export default function SettingsPage() {
         if (verificationResponse.ok) {
           const data = await verificationResponse.json();
           setVerificationRequest(data.request);
-          if (data.request?.requestedBadge === 'boy' || data.request?.requestedBadge === 'girl') {
+          if (data.request?.requestedBadge === 'man' || data.request?.requestedBadge === 'woman') {
             setRequestedBadge(data.request.requestedBadge);
           }
           setPendingVerifications(data.pendingRequests);
+          setApprovedVerifications(data.approvedRequests || []);
           setIsAdmin(data.isAdmin);
           if (data.isAdmin) {
             const reportsResponse = await fetch('/api/reports', { cache: 'no-store', headers });
@@ -184,7 +192,7 @@ export default function SettingsPage() {
     }
   }
 
-  async function reviewVerificationRequest(userId: string, status: 'approved' | 'rejected') {
+  async function reviewVerificationRequest(userId: string, status: 'approved' | 'rejected' | 'revoked') {
     if (!user) return;
     setReviewingUserId(userId);
     setVerificationError('');
@@ -198,8 +206,13 @@ export default function SettingsPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to review verification request.');
-      setPendingVerifications((current) => current.filter((request) => request.userId !== userId));
-      setVerificationMessage(`Badge request ${status}.`);
+      if (status === 'revoked') {
+        setApprovedVerifications((current) => current.filter((request) => request.userId !== userId));
+        setVerificationMessage('Verified badge revoked.');
+      } else {
+        setPendingVerifications((current) => current.filter((request) => request.userId !== userId));
+        setVerificationMessage(`Badge request ${status}.`);
+      }
     } catch (reviewError) {
       setVerificationError(reviewError instanceof Error ? reviewError.message : 'Unable to review verification request.');
     } finally {
@@ -359,7 +372,7 @@ export default function SettingsPage() {
             <section className="rounded-2xl border border-violet-400/20 bg-slate-900/80 p-5 shadow-[0_0_30px_rgba(168,85,247,0.08)] sm:p-6">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-bold text-white">Verification request</h2>
+                  <h2 className="text-lg font-bold text-white">VERIFICATION</h2>
                   <p className="mt-1 text-sm text-slate-400">
                     Choose the badge that matches how you identify. An admin reviews requests; no face scan or gender detection is used.
                   </p>
@@ -375,12 +388,12 @@ export default function SettingsPage() {
                     Requested badge
                     <select
                       value={requestedBadge}
-                      onChange={(event) => setRequestedBadge(event.target.value === 'girl' ? 'girl' : 'boy')}
+                      onChange={(event) => setRequestedBadge(event.target.value === 'woman' ? 'woman' : 'man')}
                       disabled={verificationRequest?.status === 'pending' || verificationRequest?.status === 'approved'}
                       className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-violet-400 disabled:opacity-60"
                     >
-                      <option value="boy">Boys verified</option>
-                      <option value="girl">Girls verified</option>
+                      <option value="man">MAN</option>
+                      <option value="woman">WOMAN</option>
                     </select>
                   </label>
                   <button
@@ -434,6 +447,30 @@ export default function SettingsPage() {
                               Reject
                             </button>
                           </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <h3 className="mt-5 font-semibold text-white">Verified users</h3>
+                  {approvedVerifications.length === 0 ? (
+                    <p className="mt-2 text-sm text-slate-400">No users currently have a verification badge.</p>
+                  ) : (
+                    <ul className="mt-3 divide-y divide-white/10">
+                      {approvedVerifications.map((request) => (
+                        <li key={request.userId} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                          <div>
+                            <p className="font-medium text-white">{request.name || 'Member'}</p>
+                            <p className="text-sm text-slate-400">@{request.username || 'unknown'} · {request.requestedBadge}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void reviewVerificationRequest(request.userId, 'revoked')}
+                            disabled={Boolean(reviewingUserId)}
+                            className="rounded-full border border-rose-400/30 px-3 py-1.5 text-xs font-semibold text-rose-200 disabled:opacity-50"
+                          >
+                            {reviewingUserId === request.userId ? 'Revoking...' : 'Revoke'}
+                          </button>
                         </li>
                       ))}
                     </ul>
