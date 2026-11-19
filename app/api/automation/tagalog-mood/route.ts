@@ -56,14 +56,13 @@ export async function GET(request: Request) {
       args: [runDate, dailyTarget, botUserId, runDate]
     });
 
-    const attempt = await tursoClient.execute({
-      sql: `UPDATE tagalog_mood_bot_daily
-        SET attempt_count = attempt_count + 1
-        WHERE run_date = ?
-        RETURNING target_count, posted_count, attempt_count`,
+    const dailyRunResult = await tursoClient.execute({
+      sql: `SELECT target_count, posted_count
+        FROM tagalog_mood_bot_daily
+        WHERE run_date = ?`,
       args: [runDate]
     });
-    const dailyRun = attempt.rows[0];
+    const dailyRun = dailyRunResult.rows[0];
     if (!dailyRun) {
       throw new Error('Unable to initialize the daily bot run.');
     }
@@ -74,47 +73,58 @@ export async function GET(request: Request) {
       return NextResponse.json({ posted: false, reason: 'The bot reached its daily target.', targetCount });
     }
 
-    const postNumber = Number(dailyRun.attempt_count);
-    const mood = detectedMood || fallbackMoods[(postNumber - 1) % fallbackMoods.length];
-    const postId = `rant_${crypto.randomUUID()}`;
-    const createdAt = now.toISOString();
-    const content = createTagalogSupportPost(mood, runDate, postNumber);
-    const hashtags: string[] = [];
-    for (const match of content.match(/#[a-zA-Z0-9_]+/g) || []) {
-      const hashtag = match.slice(1).toLowerCase();
-      if (!hashtags.includes(hashtag)) hashtags.push(hashtag);
-    }
-    const publish = await tursoClient.batch([
+    const postsToPublish = Array.from({ length: targetCount - postedCount }, (_, index) => {
+      const postNumber = postedCount + index + 1;
+      const mood = detectedMood || fallbackMoods[(postNumber - 1) % fallbackMoods.length];
+      const content = createTagalogSupportPost(mood, runDate, postNumber);
+      const hashtags = Array.from(new Set(
+        (content.match(/#[a-zA-Z0-9_]+/g) || []).map((tag) => tag.slice(1).toLowerCase())
+      ));
+      const createdAt = new Date(now.getTime() + index).toISOString();
+      return {
+        id: `rant_${crypto.randomUUID()}`,
+        content,
+        hashtags,
+        createdAt
+      };
+    });
+
+    const statements = [
       {
         sql: `UPDATE tagalog_mood_bot_daily
-          SET posted_count = posted_count + 1
-          WHERE run_date = ? AND posted_count < target_count`,
-        args: [runDate]
-      },
-      {
+          SET posted_count = posted_count + ?
+          WHERE run_date = ? AND posted_count = ? AND posted_count + ? <= target_count`,
+        args: [postsToPublish.length, runDate, postedCount, postsToPublish.length]
+      }
+    ];
+    for (const post of postsToPublish) {
+      statements.push({
         sql: `INSERT INTO tagalog_mood_bot_posts (post_id, run_date, content, created_at)
           SELECT ?, ?, ?, ? WHERE changes() = 1`,
-        args: [postId, runDate, content, createdAt]
-      },
-      {
+        args: [post.id, runDate, post.content, post.createdAt]
+      });
+      statements.push({
         sql: `INSERT INTO posts (id, user_id, content, created_at, updated_at)
           SELECT ?, ?, ?, ?, ?
-          WHERE EXISTS (SELECT 1 FROM tagalog_mood_bot_posts WHERE post_id = ?)`,
-        args: [postId, botUserId, content, createdAt, createdAt, postId]
-      },
-      ...hashtags.map((hashtag) => ({
+          WHERE changes() = 1
+            AND EXISTS (SELECT 1 FROM tagalog_mood_bot_posts WHERE post_id = ?)`,
+        args: [post.id, botUserId, post.content, post.createdAt, post.createdAt, post.id]
+      });
+      statements.push(...post.hashtags.map((hashtag) => ({
         sql: `INSERT INTO post_hashtags (hashtag, post_id, created_at)
           SELECT ?, ?, ?
-          WHERE EXISTS (SELECT 1 FROM tagalog_mood_bot_posts WHERE post_id = ?)`,
-        args: [hashtag, postId, createdAt, postId]
-      }))
-    ], 'write');
+          WHERE changes() = 1
+            AND EXISTS (SELECT 1 FROM tagalog_mood_bot_posts WHERE post_id = ?)`,
+        args: [hashtag, post.id, post.createdAt, post.id]
+      })));
+    }
 
+    const publish = await tursoClient.batch(statements, 'write');
     if (Number(publish[0]?.rowsAffected) === 0) {
       return NextResponse.json({ posted: false, reason: 'The bot reached its daily target.', targetCount });
     }
 
-    return NextResponse.json({ posted: true, targetCount, postNumber, mood });
+    return NextResponse.json({ posted: true, postsCreated: postsToPublish.length, targetCount });
   } catch (error) {
     console.error('Unable to publish Tagalog mood post:', error instanceof Error ? error.message : 'Unknown database error');
     return NextResponse.json({ error: 'Unable to publish the automated post.' }, { status: 500 });

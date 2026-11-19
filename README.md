@@ -57,7 +57,7 @@ Notes:
 
 ## Tagalog mood bot
 
-Vercel runs `/api/automation/tagalog-mood` every two hours. The endpoint chooses a daily target of 5–10 posts and publishes up to that target across the scheduled runs; all 12 daily executions are needed to meet the target. The Vercel plan must support a two-hour cron cadence. It checks up to 200 public posts from the previous 24 hours using a small, on-server keyword heuristic to select a mood; when no clear mood is detected, it rotates through support themes instead. Post text varies and includes a unique daily sequence number. This scheduled publisher uses broad trends and does not respond to individual posts.
+Vercel Hobby runs `/api/automation/tagalog-mood` once daily at 02:00 UTC. Each run chooses a daily target of 5–10 posts and publishes all remaining posts together in one database batch. It checks up to 200 public posts from the previous 24 hours using a small, on-server keyword heuristic to select a mood; when no clear mood is detected, it rotates through support themes instead. Post text varies and includes a unique daily sequence number. This scheduled publisher uses broad trends and does not respond to individual posts.
 
 Emotion labels are calculated temporarily and are not saved. This heuristic can misunderstand sarcasm, context, or mixed-language posts; it is not a mental-health assessment. Feed viewers are told that the automated trend check is active, and bot posts carry an “Automated bot” label.
 
