@@ -37,7 +37,8 @@ export async function POST(request: Request) {
       const targetFollows = Number(relationships.rows[0]?.targetFollows) > 0;
       const statements = [
         { sql: 'INSERT INTO blocked_users (blocker_id, blocked_id, created_at) VALUES (?, ?, ?)', args: [user.uid, targetId, new Date().toISOString()] },
-        { sql: 'DELETE FROM follows WHERE (follower_id = ? AND following_id = ?) OR (follower_id = ? AND following_id = ?)', args: [user.uid, targetId, targetId, user.uid] }
+        { sql: 'DELETE FROM follows WHERE (follower_id = ? AND following_id = ?) OR (follower_id = ? AND following_id = ?)', args: [user.uid, targetId, targetId, user.uid] },
+        { sql: 'DELETE FROM follow_requests WHERE (requester_id = ? AND target_id = ?) OR (requester_id = ? AND target_id = ?)', args: [user.uid, targetId, targetId, user.uid] }
       ];
       if (actorFollows) {
         statements.push(

@@ -13,10 +13,13 @@ export async function GET() {
   try {
     await initTursoSchema();
     const result = await tursoClient.execute(`
-      SELECT hashtag AS topic, COUNT(*) AS posts
-      FROM post_hashtags
-      GROUP BY hashtag
-      ORDER BY posts DESC, hashtag ASC
+      SELECT h.hashtag AS topic, COUNT(*) AS posts
+      FROM post_hashtags h
+      INNER JOIN posts p ON p.id = h.post_id
+      INNER JOIN users u ON u.id = p.user_id
+      WHERE COALESCE(u.private_profile, 0) = 0
+      GROUP BY h.hashtag
+      ORDER BY posts DESC, h.hashtag ASC
       LIMIT 10
     `);
 

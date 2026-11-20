@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { isAdminUid } from '@/lib/admin';
 import { verifyIdToken } from '@/lib/firebase';
 import { mentionNotificationStatements, notificationIdsFromStatements, notificationStatement } from '@/lib/notifications';
+import { canViewUserContent } from '@/lib/profile-privacy';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 import { sendPushNotifications } from '@/lib/web-push';
 
@@ -30,8 +31,20 @@ export async function GET(_request: Request, { params }: RouteContext) {
 
   try {
     await initTursoSchema();
-    const post = await tursoClient.execute({ sql: 'SELECT id FROM posts WHERE id = ?', args: [params.id] });
+    const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [params.id] });
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
+    const viewerToken = getBearerToken(_request);
+    let viewerId = '';
+    if (viewerToken) {
+      try {
+        viewerId = (await verifyIdToken(viewerToken)).uid;
+      } catch {
+        viewerId = '';
+      }
+    }
+    if (!await canViewUserContent(tursoClient, String(post.rows[0].user_id), viewerId)) {
+      return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
+    }
 
     const result = await tursoClient.execute({
       sql: `SELECT c.id, c.content, c.parent_comment_id AS parentCommentId,
@@ -78,6 +91,9 @@ export async function POST(request: Request, { params }: RouteContext) {
     const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [params.id] });
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
     const postAuthorId = String(post.rows[0].user_id);
+    if (!await canViewUserContent(tursoClient, postAuthorId, user.uid)) {
+      return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
+    }
     const blocked = await tursoClient.execute({
       sql: `SELECT 1 FROM blocked_users
         WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)`,

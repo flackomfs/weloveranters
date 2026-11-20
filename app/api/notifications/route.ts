@@ -25,6 +25,7 @@ export async function GET(request: Request) {
         FROM notifications n
         LEFT JOIN users a ON a.id = n.actor_id
         LEFT JOIN posts p ON p.id = n.entity_id
+        LEFT JOIN users post_author ON post_author.id = p.user_id
         LEFT JOIN notification_preferences np
           ON np.user_id = n.recipient_id
           AND np.type = CASE
@@ -38,9 +39,13 @@ export async function GET(request: Request) {
         WHERE n.recipient_id = ?
           AND COALESCE(np.enabled, 1) = 1
           AND (n.type IN ('follow', 'unfollow') OR p.id IS NOT NULL)
+          AND (p.id IS NULL OR COALESCE(post_author.private_profile, 0) = 0
+            OR post_author.id = ? OR EXISTS (
+              SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = post_author.id
+            ))
         ORDER BY n.created_at DESC
         LIMIT 100`,
-      args: [userId]
+      args: [userId, userId, userId]
     });
 
     return NextResponse.json({ notifications: result.rows }, { headers: { 'Cache-Control': 'no-store' } });

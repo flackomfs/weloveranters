@@ -18,7 +18,10 @@ export async function POST(request: Request) {
     const targetId = typeof body.targetId === 'string' ? body.targetId : '';
     if (!targetId || targetId === user.uid) return NextResponse.json({ error: 'Invalid profile to follow.' }, { status: 400 });
 
-    const target = await tursoClient.execute({ sql: 'SELECT id FROM users WHERE id = ?', args: [targetId] });
+    const target = await tursoClient.execute({
+      sql: 'SELECT id, private_profile FROM users WHERE id = ?',
+      args: [targetId]
+    });
     if (!target.rows[0]) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
     const block = await tursoClient.execute({
       sql: `SELECT 1 FROM blocked_users
@@ -32,6 +35,26 @@ export async function POST(request: Request) {
       args: [user.uid, targetId]
     });
     const isFollowing = Boolean(existing.rows[0]);
+
+    if (!isFollowing && Number(target.rows[0].private_profile) > 0) {
+      const request = await tursoClient.execute({
+        sql: 'SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?',
+        args: [user.uid, targetId]
+      });
+      if (request.rows[0]) {
+        await tursoClient.execute({
+          sql: 'DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?',
+          args: [user.uid, targetId]
+        });
+        return NextResponse.json({ following: false, requested: false });
+      }
+      await tursoClient.execute({
+        sql: `INSERT INTO follow_requests (requester_id, target_id, created_at)
+          VALUES (?, ?, ?) ON CONFLICT(requester_id, target_id) DO NOTHING`,
+        args: [user.uid, targetId, new Date().toISOString()]
+      });
+      return NextResponse.json({ following: false, requested: true });
+    }
 
     const countDelta = isFollowing ? -1 : 1;
     const updateFollowerCount = {
@@ -61,6 +84,7 @@ export async function POST(request: Request) {
     if (isFollowing) {
       await tursoClient.batch([
         { sql: 'DELETE FROM follows WHERE follower_id = ? AND following_id = ?', args: [user.uid, targetId] },
+        { sql: 'DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?', args: [user.uid, targetId] },
         updateFollowerCount,
         updateFollowingCount,
         notification
@@ -71,6 +95,7 @@ export async function POST(request: Request) {
           sql: 'INSERT INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)',
           args: [user.uid, targetId, new Date().toISOString()]
         },
+        { sql: 'DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?', args: [user.uid, targetId] },
         updateFollowerCount,
         updateFollowingCount,
         notification

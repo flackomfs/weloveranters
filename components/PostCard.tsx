@@ -108,7 +108,9 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
     setIsCommentsLoading(true);
     setError('');
     try {
-      const response = await fetch(`/api/posts/${encodeURIComponent(post.id)}`, { cache: 'no-store' });
+      const user = getFirebaseAuth()?.currentUser;
+      const headers = user ? { Authorization: `Bearer ${await user.getIdToken()}` } : undefined;
+      const response = await fetch(`/api/posts/${encodeURIComponent(post.id)}`, { cache: 'no-store', headers });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to load comments.');
       setComments(data.comments);

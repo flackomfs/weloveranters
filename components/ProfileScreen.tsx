@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { ArrowLeft, Ban, ExternalLink, Pencil, Save, X } from 'lucide-react';
+import { ArrowLeft, Ban, ExternalLink, LockKeyhole, Pencil, Save, UnlockKeyhole, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { getFirebaseAuth } from '@/lib/firebase-client';
 import { Sidebar } from '@/components/Sidebar';
@@ -23,6 +23,9 @@ type Profile = {
   name: string;
   username: string;
   avatarUrl: string;
+  isPrivate: boolean;
+  canViewProfile: boolean;
+  hasRequestedFollow: boolean;
   bannerUrl: string;
   bio: string;
   socialLinks: SocialLinks;
@@ -36,6 +39,13 @@ type Profile = {
   verificationBadge: 'man' | 'woman' | 'moderator' | null;
   viewerBlocked: boolean;
   blockedViewer: boolean;
+};
+
+type FollowRequest = {
+  requesterId: string;
+  name: string;
+  username: string;
+  avatarUrl: string;
 };
 
 const socialFields: Array<{ key: keyof SocialLinks; label: string }> = [
@@ -88,11 +98,14 @@ export function ProfileScreen({ username }: { username?: string }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [followRequests, setFollowRequests] = useState<FollowRequest[]>([]);
   const [form, setForm] = useState({ name: '', username: '', avatarUrl: '', bannerUrl: '', bio: '', socialLinks: {} as SocialLinks });
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isFollowingSaving, setIsFollowingSaving] = useState(false);
+  const [isPrivacySaving, setIsPrivacySaving] = useState(false);
+  const [reviewingRequestId, setReviewingRequestId] = useState('');
   const [isBlockingSaving, setIsBlockingSaving] = useState(false);
   const [isEditingStats, setIsEditingStats] = useState(false);
   const [isSavingStats, setIsSavingStats] = useState(false);
@@ -139,13 +152,24 @@ export function ProfileScreen({ username }: { username?: string }) {
         const postsData = await postsResponse.json();
         setPosts(postsData.posts);
       }
+      if (isOwnProfile && loadedProfile.isPrivate && activeUser) {
+        const requestResponse = await fetch('/api/follow-requests', {
+          cache: 'no-store',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const requestData = await requestResponse.json();
+        if (!requestResponse.ok) throw new Error(requestData.error || 'Unable to load follow requests.');
+        setFollowRequests(requestData.requests);
+      } else {
+        setFollowRequests([]);
+      }
       setError('');
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load this profile.');
     } finally {
       setIsLoading(false);
     }
-  }, [username]);
+  }, [isOwnProfile, username]);
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -262,12 +286,62 @@ export function ProfileScreen({ username }: { username?: string }) {
       setProfile((current) => current ? {
         ...current,
         isFollowing: data.following,
-        followers: current.followers + (data.following ? 1 : -1)
+        hasRequestedFollow: Boolean(data.requested),
+        canViewProfile: !current.isPrivate || data.following,
+        followers: current.followers + (data.following && !current.isFollowing ? 1 : !data.following && current.isFollowing ? -1 : 0)
       } : current);
+      if (data.following) await loadProfile(firebaseUser);
     } catch (followError) {
       setError(followError instanceof Error ? followError.message : 'Unable to update follow.');
     } finally {
       setIsFollowingSaving(false);
+    }
+  }
+
+  async function handlePrivacyChange(isPrivate: boolean) {
+    if (!firebaseUser || !profile || isPrivacySaving) return;
+    if (profile.isPrivate === isPrivate) return;
+    setIsPrivacySaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ isPrivate })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to update profile privacy.');
+      setProfile(data.profile);
+      setMessage(data.profile.isPrivate ? 'Your profile is now private.' : 'Your profile is now public.');
+      await loadProfile(firebaseUser);
+    } catch (privacyError) {
+      setError(privacyError instanceof Error ? privacyError.message : 'Unable to update profile privacy.');
+    } finally {
+      setIsPrivacySaving(false);
+    }
+  }
+
+  async function handleFollowRequest(requesterId: string, action: 'approve' | 'reject') {
+    if (!firebaseUser || reviewingRequestId) return;
+    setReviewingRequestId(requesterId);
+    setError('');
+    try {
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch('/api/follow-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ requesterId, action })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to manage follow request.');
+      setFollowRequests((current) => current.filter((request) => request.requesterId !== requesterId));
+      if (action === 'approve') await loadProfile(firebaseUser);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to manage follow request.');
+    } finally {
+      setReviewingRequestId('');
     }
   }
 
@@ -368,7 +442,7 @@ export function ProfileScreen({ username }: { username?: string }) {
 
             <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-soft">
               <div className="relative z-0 h-32 overflow-hidden bg-gradient-to-r from-pink-500 via-violet-500 to-indigo-500">
-                {(isEditing ? form.bannerUrl : profile.bannerUrl) ? (
+                {(isProfileOwner || profile.canViewProfile) && (isEditing ? form.bannerUrl : profile.bannerUrl) ? (
                   <Image
                     src={isEditing ? form.bannerUrl : profile.bannerUrl}
                     alt="Profile banner"
@@ -383,20 +457,42 @@ export function ProfileScreen({ username }: { username?: string }) {
               <div className="relative z-10 px-6 pb-6">
                 <div className="-mt-12 flex items-end justify-between gap-4">
                   {(isEditing ? form.avatarUrl : profile.avatarUrl) ? (
-                    <Image src={isEditing ? form.avatarUrl : profile.avatarUrl} alt={`${profile.name}'s profile photo`} width={96} height={96} unoptimized className="h-24 w-24 rounded-full border-4 border-white object-cover shadow-lg" />
+                    <Image src={isEditing ? form.avatarUrl : profile.avatarUrl} alt={`${profile.name || `@${profile.username}`}'s profile photo`} width={96} height={96} unoptimized className="h-24 w-24 rounded-full border-4 border-white object-cover shadow-lg" />
                   ) : (
                     <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-white bg-gradient-to-br from-pink-500 to-violet-500 text-2xl font-bold text-white shadow-lg">
-                      {profile.name.slice(0, 1).toUpperCase()}
+                      {(profile.name || profile.username).slice(0, 1).toUpperCase()}
                     </div>
                   )}
                   {isOwnProfile ? (
-                    <button type="button" onClick={() => { setIsEditing((current) => !current); setMessage(''); setError(''); setProfileFieldErrors({ name: '', username: '' }); }} className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
-                      {isEditing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
-                      {isEditing ? 'Cancel' : 'Edit profile'}
-                    </button>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button type="button" onClick={() => { setIsEditing((current) => !current); setMessage(''); setError(''); setProfileFieldErrors({ name: '', username: '' }); }} className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+                        {isEditing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+                        {isEditing ? 'Cancel' : 'Edit profile'}
+                      </button>
+                      <div className="inline-flex rounded-full border border-slate-300 bg-white p-1">
+                        <button
+                          type="button"
+                          onClick={() => void handlePrivacyChange(false)}
+                          disabled={isPrivacySaving}
+                          aria-pressed={!profile.isPrivate}
+                          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold disabled:opacity-60 ${!profile.isPrivate ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                        >
+                          <UnlockKeyhole className="h-4 w-4" />Public
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handlePrivacyChange(true)}
+                          disabled={isPrivacySaving}
+                          aria-pressed={profile.isPrivate}
+                          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold disabled:opacity-60 ${profile.isPrivate ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                        >
+                          <LockKeyhole className="h-4 w-4" />Private
+                        </button>
+                      </div>
+                    </div>
                   ) : isProfileOwner ? null : firebaseUser && !profile.viewerBlocked && !profile.blockedViewer ? (
                     <button type="button" onClick={handleFollow} disabled={isFollowingSaving} className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                      {isFollowingSaving ? 'Updating...' : profile.isFollowing ? 'Following' : 'Follow'}
+                      {isFollowingSaving ? 'Updating...' : profile.isFollowing ? 'Following' : profile.hasRequestedFollow ? 'Cancel request' : profile.isPrivate ? 'Request to follow' : 'Follow'}
                     </button>
                   ) : firebaseUser ? (
                     <span className="text-xs text-slate-500">{profile.blockedViewer ? 'This user has blocked you.' : 'You blocked this user.'}</span>
@@ -408,7 +504,7 @@ export function ProfileScreen({ username }: { username?: string }) {
                       type="button"
                       onClick={() => void handleBlock()}
                       disabled={isBlockingSaving}
-                      aria-label={profile.viewerBlocked ? `Unblock ${profile.name}` : `Block ${profile.name}`}
+                      aria-label={profile.viewerBlocked ? `Unblock @${profile.username}` : `Block @${profile.username}`}
                       className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50"
                     >
                       <Ban className="h-4 w-4" />
@@ -421,8 +517,8 @@ export function ProfileScreen({ username }: { username?: string }) {
                   <>
                     <div className="mt-4">
                       <div className="flex items-center gap-2">
-                        <h1 className="text-3xl font-bold">{profile.name}</h1>
-                        {profile.verificationBadge ? (
+                        <h1 className="text-3xl font-bold">{profile.canViewProfile || isProfileOwner ? profile.name : 'Private profile'}</h1>
+                        {profile.canViewProfile && profile.verificationBadge ? (
                           <Image
                             src={profile.verificationBadge === 'moderator'
                               ? '/badges/moderator.gif'
@@ -437,6 +533,8 @@ export function ProfileScreen({ username }: { username?: string }) {
                       </div>
                       <p className="mt-1 text-slate-500">@{profile.username}</p>
                     </div>
+                    {profile.canViewProfile || isProfileOwner ? (
+                      <>
                     <p className="mt-4 max-w-2xl whitespace-pre-wrap text-slate-700">{profile.bio || 'No bio added yet.'}</p>
                     {joined ? <p className="mt-4 text-sm text-slate-500">Joined {joined}</p> : null}
                     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600">
@@ -478,6 +576,12 @@ export function ProfileScreen({ username }: { username?: string }) {
                         ))}
                       </div>
                     ) : null}
+                      </>
+                    ) : (
+                      <p className="mt-5 max-w-xl rounded-xl bg-violet-50 p-4 text-sm text-violet-900">
+                        This account is private. Request to follow to see their profile details and rants.
+                      </p>
+                    )}
                   </>
                 ) : (
                   <form onSubmit={handleSave} className="mt-5 space-y-4">
@@ -544,7 +648,9 @@ export function ProfileScreen({ username }: { username?: string }) {
 
             <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-soft">
               <h2 className="mb-5 text-xl font-bold">Recent rants</h2>
-              {profile.viewerBlocked || profile.blockedViewer ? (
+              {!profile.canViewProfile && !isProfileOwner ? (
+                <p className="text-sm text-slate-500">This profile is private. Send a follow request to see their rants.</p>
+              ) : profile.viewerBlocked || profile.blockedViewer ? (
                 <p className="text-sm text-slate-500">Posts are hidden because one account has blocked the other.</p>
               ) : posts.length ? (
                 <div className="space-y-4">
@@ -560,6 +666,42 @@ export function ProfileScreen({ username }: { username?: string }) {
                 <p className="text-sm text-slate-500">No rants posted yet.</p>
               )}
             </section>
+
+            {isOwnProfile && profile.isPrivate ? (
+              <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-soft">
+                <h2 className="text-xl font-bold">Follow requests</h2>
+                <p className="mt-1 text-sm text-slate-500">Approve requests to let people follow you and see your private profile.</p>
+                {followRequests.length ? (
+                  <ul className="mt-4 divide-y divide-slate-100">
+                    {followRequests.map((request) => (
+                      <li key={request.requesterId} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                        <Link href={`/profile/${encodeURIComponent(request.username)}`} className="font-semibold text-slate-800 hover:text-violet-700">
+                          {request.name || `@${request.username}`} <span className="font-normal text-slate-500">@{request.username}</span>
+                        </Link>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleFollowRequest(request.requesterId, 'approve')}
+                            disabled={Boolean(reviewingRequestId)}
+                            className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                          >
+                            {reviewingRequestId === request.requesterId ? 'Updating...' : 'Approve'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleFollowRequest(request.requesterId, 'reject')}
+                            disabled={Boolean(reviewingRequestId)}
+                            className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="mt-4 text-sm text-slate-500">No pending follow requests.</p>}
+              </section>
+            ) : null}
           </div>
         </main>
       </div>

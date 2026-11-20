@@ -60,6 +60,8 @@ Notes:
 
 Users can enable browser push notifications from Settings → Notification preferences. Push alerts are opt-in per device, follow the user's existing notification categories, and open the in-app notifications page when clicked. The browser asks for notification permission only after the user enables them. Web Push works in supported desktop and Android browsers; iPhone and iPad users need to add the site to their Home Screen and open it as a web app.
 
+Users can set their profile to Public or Private from their profile page. Private profiles show only the username and avatar to non-followers; posts and profile details are visible only to approved followers. New follows require approval, and existing followers keep access when an account becomes private.
+
 ## Tagalog mood bot
 
 Vercel Hobby runs `/api/automation/tagalog-mood` once daily at 02:00 UTC. Each run chooses a daily target of 5–10 posts and publishes all remaining posts together in one database batch. It checks up to 200 public posts from the previous 24 hours using a small, on-server keyword heuristic to select a mood; when no clear mood is detected, it rotates through support themes instead. Post text varies and includes a unique daily sequence number. This scheduled publisher uses broad trends and does not respond to individual posts.

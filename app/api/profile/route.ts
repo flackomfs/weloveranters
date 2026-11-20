@@ -30,6 +30,7 @@ function profileFromRow(row: Record<string, unknown>) {
     name: String(row.display_name || 'New user'),
     username: String(row.username || ''),
     avatarUrl: String(row.avatar_url || ''),
+    isPrivate: Number(row.private_profile || 0) > 0,
     bannerUrl: String(row.banner_url || ''),
     bio: String(row.bio || ''),
     socialLinks: parseSocialLinks(row.social_links),
@@ -47,7 +48,7 @@ function getBearerToken(request: Request) {
 async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewerId: string | null) {
   if (!tursoClient) return profile;
 
-  const [counts, verification, isFollowing, blockState] = await Promise.all([
+  const [counts, verification, isFollowing, followRequest, blockState] = await Promise.all([
     tursoClient.execute({
       sql: `SELECT
         (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers,
@@ -67,6 +68,12 @@ async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewer
       : Promise.resolve(null),
     viewerId && viewerId !== profile.id
       ? tursoClient.execute({
+        sql: 'SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?',
+        args: [viewerId, profile.id]
+      })
+      : Promise.resolve(null),
+    viewerId && viewerId !== profile.id
+      ? tursoClient.execute({
         sql: `SELECT
           EXISTS (SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?) AS viewerBlocked,
           EXISTS (SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?) AS blockedViewer`,
@@ -76,16 +83,36 @@ async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewer
   ]);
   const isAdmin = isAdminUid(profile.id);
   const requestedBadge = verification.rows[0]?.requested_badge;
+  const viewerFollows = Boolean(isFollowing?.rows[0]);
+  const canViewProfile = !profile.isPrivate || profile.id === viewerId || viewerFollows;
 
-  return {
+  const enrichedProfile = {
     ...profile,
     followers: profile.followersOverride ?? Number(counts.rows[0]?.followers || 0),
     following: profile.followingOverride ?? Number(counts.rows[0]?.following || 0),
-    isFollowing: Boolean(isFollowing?.rows[0]),
+    isFollowing: viewerFollows,
+    hasRequestedFollow: Boolean(followRequest?.rows[0]),
+    canViewProfile,
     viewerBlocked: Number(blockState?.rows[0]?.viewerBlocked || 0) > 0,
     blockedViewer: Number(blockState?.rows[0]?.blockedViewer || 0) > 0,
     canManageStats: Boolean(viewerId && isAdminUid(viewerId)),
     verificationBadge: isAdmin ? 'moderator' : requestedBadge === 'man' || requestedBadge === 'woman' ? requestedBadge : null
+  };
+
+  if (canViewProfile) return enrichedProfile;
+  return {
+    ...enrichedProfile,
+    name: '',
+    bannerUrl: '',
+    bio: '',
+    socialLinks: {},
+    createdAt: '',
+    followers: 0,
+    following: 0,
+    followersOverride: null,
+    followingOverride: null,
+    canManageStats: false,
+    verificationBadge: null
   };
 }
 
@@ -139,7 +166,7 @@ async function ensureProfile(uid: string, email?: string, displayName?: string, 
 
   const profile = await tursoClient.execute({
     sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
-      followers_override, following_override
+      followers_override, following_override, private_profile
       FROM users WHERE id = ?`,
     args: [uid]
   });
@@ -211,7 +238,7 @@ export async function GET(request: Request) {
     if (username) {
       const result = await tursoClient.execute({
         sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
-            followers_override, following_override
+            followers_override, following_override, private_profile
           FROM users WHERE username = ?`,
         args: [username.toLowerCase()]
       });
@@ -233,6 +260,39 @@ export async function GET(request: Request) {
       { error: getServerConfigMessage(error) || 'Unable to load profile.' },
       { status: error instanceof Error && /not configured|Configure the/.test(error.message) ? 503 : 500 }
     );
+  }
+}
+
+export async function PATCH(request: Request) {
+  if (!tursoClient) {
+    return NextResponse.json({ error: 'Profile storage is unavailable. Configure the Turso database environment variables.' }, { status: 503 });
+  }
+
+  try {
+    await initTursoSchema();
+    const user = await authenticate(request);
+    if (!user) return NextResponse.json({ error: 'Sign in to update your profile privacy.' }, { status: 401 });
+
+    const body = await request.json();
+    if (typeof body.isPrivate !== 'boolean') {
+      return NextResponse.json({ error: 'Choose whether your profile should be public or private.' }, { status: 400 });
+    }
+
+    await ensureProfile(user.uid, user.email, user.name, user.picture);
+    await tursoClient.execute({
+      sql: 'UPDATE users SET private_profile = ? WHERE id = ?',
+      args: [body.isPrivate ? 1 : 0, user.uid]
+    });
+    const result = await tursoClient.execute({
+      sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
+          followers_override, following_override, private_profile
+        FROM users WHERE id = ?`,
+      args: [user.uid]
+    });
+    return NextResponse.json({ profile: await addFollowState(profileFromRow(result.rows[0]), user.uid) });
+  } catch (error) {
+    console.error('Unable to update profile privacy:', error instanceof Error ? error.message : 'Unknown error');
+    return NextResponse.json({ error: 'Unable to update profile privacy.' }, { status: 500 });
   }
 }
 
@@ -282,7 +342,7 @@ export async function PUT(request: Request) {
 
     const result = await tursoClient.execute({
       sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
-          followers_override, following_override
+          followers_override, following_override, private_profile
         FROM users WHERE id = ?`,
       args: [user.uid]
     });

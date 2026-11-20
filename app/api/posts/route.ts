@@ -81,12 +81,32 @@ export async function GET(request: Request) {
             WHERE (b.blocker_id = ? AND b.blocked_id IN (e.authorId, e.reposterId, source_post.user_id))
               OR (b.blocked_id = ? AND b.blocker_id IN (e.authorId, e.reposterId, source_post.user_id))
           ))
+          AND (e.authorId = ? OR NOT EXISTS (
+            SELECT 1 FROM users private_author WHERE private_author.id = e.authorId AND private_author.private_profile = 1
+          ) OR EXISTS (
+            SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = e.authorId
+          ))
+          AND (e.reposterId IS NULL OR e.reposterId = ? OR NOT EXISTS (
+            SELECT 1 FROM users private_reposter WHERE private_reposter.id = e.reposterId AND private_reposter.private_profile = 1
+          ) OR EXISTS (
+            SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = e.reposterId
+          ))
+          AND (source_post.user_id IS NULL OR source_post.user_id = ? OR NOT EXISTS (
+            SELECT 1 FROM users private_source
+            WHERE private_source.id = source_post.user_id AND private_source.private_profile = 1
+          ) OR EXISTS (
+            SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = source_post.user_id
+          ))
           AND (? <> 'following' OR e.authorId = ? OR EXISTS (
             SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = e.authorId
           ))
         ORDER BY CASE WHEN ? = 'popular' THEN p.likes END DESC, e.createdAt DESC
         LIMIT 100`,
-      args: [viewerId, username, username, username, viewerId, viewerId, viewerId, sort, viewerId, viewerId, sort]
+      args: [
+        viewerId, username, username, username, viewerId, viewerId, viewerId,
+        viewerId, viewerId, viewerId, viewerId, viewerId, viewerId,
+        sort, viewerId, viewerId, sort
+      ]
     });
 
     const posts = result.rows.map((row) => ({
