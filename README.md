@@ -52,7 +52,7 @@ Notes:
 
 ### Cloudflare Workers deployment
 
-This Next.js 14 app uses the OpenNext Cloudflare adapter pinned to a release that supports Next.js 14. Do not use `npx wrangler deploy` by itself: OpenNext must first produce the Cloudflare Worker bundle.
+This Next.js 15 app uses the OpenNext Cloudflare adapter pinned to a compatible release. Do not use `npx wrangler deploy` by itself: OpenNext must first produce the Cloudflare Worker bundle.
 
 Connect the repository in Cloudflare Workers Builds and use:
 
