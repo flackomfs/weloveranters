@@ -1,3 +1,5 @@
+const { initOpenNextCloudflareForDev } = require('@opennextjs/cloudflare');
+
 const nextConfig = {
   reactStrictMode: true,
   images: {
@@ -7,7 +9,14 @@ const nextConfig = {
         hostname: 'images.unsplash.com'
       }
     ]
+  },
+  experimental: {
+    outputFileTracingIncludes: {
+      '/*': ['./node_modules/@libsql/isomorphic-ws/web.mjs']
+    }
   }
 };
+
+initOpenNextCloudflareForDev();
 
 module.exports = nextConfig;

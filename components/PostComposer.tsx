@@ -4,7 +4,6 @@ import Image from 'next/image';
 import { useUser } from '@clerk/nextjs';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { RichText } from '@/components/RichText';
-import { parseSupportBotCommand } from '@/lib/support-bot-command';
 
 type ComposerProfile = {
   name: string;
@@ -161,18 +160,13 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
       return;
     }
 
-    const supportCommand = parseSupportBotCommand(content);
-    if (supportCommand && !window.confirm('This post will be public and sent to Google Gemini to create a separate public reply from Kumusta Bot. Continue?')) {
-      return;
-    }
-
     setIsSubmitting(true);
 
     try {
       const response = await fetch('/api/posts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, generateBotReply: Boolean(supportCommand) })
+        body: JSON.stringify({ content })
       });
 
       const data = await response.json();
@@ -182,7 +176,7 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
       }
 
       setContent('');
-      setMessage(data.botReplyError || data.message || 'Your rant is live.');
+      setMessage(data.message || 'Your rant is live.');
       try {
         window.localStorage.removeItem('weloveranters-post-draft');
       } catch {

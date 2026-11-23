@@ -1,4 +1,4 @@
-import { createClient } from '@libsql/client';
+import { createClient } from '@libsql/client/http';
 
 const databaseUrl = process.env.TURSO_DATABASE_URL;
 const authToken = process.env.TURSO_AUTH_TOKEN;
@@ -56,34 +56,6 @@ export async function initTursoSchema() {
           reposts INTEGER DEFAULT 0
         );
       `);
-
-      await tursoClient.execute(`
-        CREATE TABLE IF NOT EXISTS tagalog_mood_bot_runs (
-          run_date TEXT PRIMARY KEY,
-          post_id TEXT NOT NULL,
-          content TEXT
-        );
-      `);
-
-      await tursoClient.execute(`
-        CREATE TABLE IF NOT EXISTS tagalog_mood_bot_daily (
-          run_date TEXT PRIMARY KEY,
-          target_count INTEGER NOT NULL CHECK (target_count BETWEEN 5 AND 10),
-          posted_count INTEGER NOT NULL DEFAULT 0,
-          attempt_count INTEGER NOT NULL DEFAULT 0
-        );
-      `);
-
-      await tursoClient.execute(`
-        CREATE TABLE IF NOT EXISTS tagalog_mood_bot_posts (
-          post_id TEXT PRIMARY KEY,
-          run_date TEXT NOT NULL,
-          content TEXT NOT NULL UNIQUE,
-          created_at TEXT NOT NULL
-        );
-      `);
-
-      await tursoClient.execute('CREATE INDEX IF NOT EXISTS tagalog_mood_bot_posts_run_date_idx ON tagalog_mood_bot_posts (run_date);');
 
       await tursoClient.execute(`
         CREATE TABLE IF NOT EXISTS post_comments (
@@ -319,12 +291,6 @@ export async function initTursoSchema() {
       if (!postColumns.rows.some((row) => String(row.name) === 'updated_at')) {
         await tursoClient.execute('ALTER TABLE posts ADD COLUMN updated_at TEXT');
       }
-
-      const tagalogMoodBotRunColumns = await tursoClient.execute('PRAGMA table_info(tagalog_mood_bot_runs)');
-      if (!tagalogMoodBotRunColumns.rows.some((row) => String(row.name) === 'content')) {
-        await tursoClient.execute('ALTER TABLE tagalog_mood_bot_runs ADD COLUMN content TEXT');
-      }
-      await tursoClient.execute('CREATE UNIQUE INDEX IF NOT EXISTS tagalog_mood_bot_runs_content_unique ON tagalog_mood_bot_runs (content);');
 
       const commentColumns = await tursoClient.execute('PRAGMA table_info(post_comments)');
       if (!commentColumns.rows.some((row) => String(row.name) === 'parent_comment_id')) {

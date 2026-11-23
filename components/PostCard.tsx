@@ -23,9 +23,6 @@ export type FeedPost = {
   repostedById: string | null;
   repostedByName: string | null;
   repostedByUsername: string | null;
-  responseToPostId: string | null;
-  responseToContent: string | null;
-  responseToAuthorName: string | null;
   isBot: boolean;
   verificationBadge: 'man' | 'woman' | 'moderator' | null;
   isReposted: boolean;
@@ -261,17 +258,6 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
             </Link>
           ) : <span className="font-semibold text-slate-700">{post.authorName || 'Member'}</span>}
         </p>
-      ) : null}
-
-      {post.responseToPostId ? (
-        <div className="mb-2 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 sm:mb-3">
-          <p className="text-xs font-semibold text-sky-900">
-            Kumusta Bot responding to {post.responseToAuthorName || 'a community member'}’s post
-          </p>
-          <a href={`#post-${post.responseToPostId}`} className="mt-1 block line-clamp-2 text-xs text-sky-800 hover:underline">
-            {post.responseToContent}
-          </a>
-        </div>
       ) : null}
 
       <div className="flex items-start gap-2 sm:gap-3">

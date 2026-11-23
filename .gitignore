@@ -2,11 +2,16 @@
 node_modules
 .next
 out
+.open-next
+.wrangler
 
 # env files
 .env
 .env.local
 .env.*.local
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
 
 # logs
 npm-debug.log*
