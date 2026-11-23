@@ -2,10 +2,9 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { onAuthStateChanged, type User } from 'firebase/auth';
+import { useUser } from '@clerk/nextjs';
 import { ArrowLeft, Ban, ExternalLink, LockKeyhole, Pencil, Save, UnlockKeyhole, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
-import { getFirebaseAuth } from '@/lib/firebase-client';
 import { Sidebar } from '@/components/Sidebar';
 import { PostCard, type FeedPost } from '@/components/PostCard';
 
@@ -20,6 +19,7 @@ type SocialLinks = {
 
 type Profile = {
   id: string;
+  isOwner: boolean;
   name: string;
   username: string;
   avatarUrl: string;
@@ -95,7 +95,7 @@ async function compressPhoto(file: File, field: 'avatarUrl' | 'bannerUrl') {
 
 export function ProfileScreen({ username }: { username?: string }) {
   const isOwnProfile = !username;
-  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const { isLoaded, user } = useUser();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [followRequests, setFollowRequests] = useState<FollowRequest[]>([]);
@@ -116,14 +116,11 @@ export function ProfileScreen({ username }: { username?: string }) {
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const isEditingRef = useRef(false);
 
-  const loadProfile = useCallback(async (user?: User) => {
+  const loadProfile = useCallback(async () => {
     try {
-      const activeUser = user || getFirebaseAuth()?.currentUser || undefined;
-      const token = activeUser ? await activeUser.getIdToken() : '';
       const profileUrl = username ? `/api/profile?username=${encodeURIComponent(username)}` : '/api/profile';
       const profileResponse = await fetch(profileUrl, {
-        cache: 'no-store',
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined
+        cache: 'no-store'
       });
       const profileData = await profileResponse.json();
       if (!profileResponse.ok) {
@@ -145,17 +142,15 @@ export function ProfileScreen({ username }: { username?: string }) {
       }
 
       const postsResponse = await fetch(`/api/posts?username=${encodeURIComponent(loadedProfile.username)}`, {
-        cache: 'no-store',
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined
+        cache: 'no-store'
       });
       if (postsResponse.ok) {
         const postsData = await postsResponse.json();
         setPosts(postsData.posts);
       }
-      if (isOwnProfile && loadedProfile.isPrivate && activeUser) {
+      if (isOwnProfile && loadedProfile.isPrivate && user) {
         const requestResponse = await fetch('/api/follow-requests', {
-          cache: 'no-store',
-          headers: { Authorization: `Bearer ${token}` }
+          cache: 'no-store'
         });
         const requestData = await requestResponse.json();
         if (!requestResponse.ok) throw new Error(requestData.error || 'Unable to load follow requests.');
@@ -169,29 +164,19 @@ export function ProfileScreen({ username }: { username?: string }) {
     } finally {
       setIsLoading(false);
     }
-  }, [isOwnProfile, username]);
+  }, [isOwnProfile, username, user]);
 
   useEffect(() => {
-    const auth = getFirebaseAuth();
-    if (!auth) {
-      if (isOwnProfile) setNeedsSignIn(true);
+    if (!isLoaded) return;
+    if (!user && isOwnProfile) {
+      setNeedsSignIn(true);
       setIsLoading(false);
-      if (!isOwnProfile) void loadProfile();
       return;
     }
-
-    return onAuthStateChanged(auth, (user) => {
-      setFirebaseUser(user);
-      if (!user && isOwnProfile) {
-        setNeedsSignIn(true);
-        setIsLoading(false);
-        return;
-      }
-      setNeedsSignIn(false);
-      setIsLoading(true);
-      void loadProfile(user || undefined);
-    });
-  }, [isOwnProfile, loadProfile]);
+    setNeedsSignIn(false);
+    setIsLoading(true);
+    void loadProfile();
+  }, [isLoaded, isOwnProfile, loadProfile, user]);
 
   useEffect(() => {
     isEditingRef.current = isEditing;
@@ -202,10 +187,10 @@ export function ProfileScreen({ username }: { username?: string }) {
   useEffect(() => {
     if (!hasProfile) return;
     const intervalId = window.setInterval(() => {
-      if (!isEditingRef.current) void loadProfile(isOwnProfile ? firebaseUser || undefined : undefined);
+      if (!isEditingRef.current) void loadProfile();
     }, 3000);
     return () => window.clearInterval(intervalId);
-  }, [firebaseUser, hasProfile, isOwnProfile, loadProfile]);
+  }, [hasProfile, loadProfile]);
 
   function updateSocialLink(key: keyof SocialLinks, value: string) {
     setForm((current) => ({
@@ -229,17 +214,16 @@ export function ProfileScreen({ username }: { username?: string }) {
 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!firebaseUser) return;
+    if (!user) return;
 
     setIsSaving(true);
     setMessage('');
     setError('');
     setProfileFieldErrors({ name: '', username: '' });
     try {
-      const token = await firebaseUser.getIdToken();
       const response = await fetch('/api/profile', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form)
       });
       const data = await response.json();
@@ -271,14 +255,13 @@ export function ProfileScreen({ username }: { username?: string }) {
   }
 
   async function handleFollow() {
-    if (!firebaseUser || !profile) return;
+    if (!user || !profile) return;
     setIsFollowingSaving(true);
     setError('');
     try {
-      const token = await firebaseUser.getIdToken();
       const response = await fetch('/api/follow', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetId: profile.id })
       });
       const data = await response.json();
@@ -290,7 +273,7 @@ export function ProfileScreen({ username }: { username?: string }) {
         canViewProfile: !current.isPrivate || data.following,
         followers: current.followers + (data.following && !current.isFollowing ? 1 : !data.following && current.isFollowing ? -1 : 0)
       } : current);
-      if (data.following) await loadProfile(firebaseUser);
+      if (data.following) await loadProfile();
     } catch (followError) {
       setError(followError instanceof Error ? followError.message : 'Unable to update follow.');
     } finally {
@@ -299,23 +282,22 @@ export function ProfileScreen({ username }: { username?: string }) {
   }
 
   async function handlePrivacyChange(isPrivate: boolean) {
-    if (!firebaseUser || !profile || isPrivacySaving) return;
+    if (!user || !profile || isPrivacySaving) return;
     if (profile.isPrivate === isPrivate) return;
     setIsPrivacySaving(true);
     setError('');
     setMessage('');
     try {
-      const token = await firebaseUser.getIdToken();
       const response = await fetch('/api/profile', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isPrivate })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to update profile privacy.');
       setProfile(data.profile);
       setMessage(data.profile.isPrivate ? 'Your profile is now private.' : 'Your profile is now public.');
-      await loadProfile(firebaseUser);
+      await loadProfile();
     } catch (privacyError) {
       setError(privacyError instanceof Error ? privacyError.message : 'Unable to update profile privacy.');
     } finally {
@@ -324,20 +306,19 @@ export function ProfileScreen({ username }: { username?: string }) {
   }
 
   async function handleFollowRequest(requesterId: string, action: 'approve' | 'reject') {
-    if (!firebaseUser || reviewingRequestId) return;
+    if (!user || reviewingRequestId) return;
     setReviewingRequestId(requesterId);
     setError('');
     try {
-      const token = await firebaseUser.getIdToken();
       const response = await fetch('/api/follow-requests', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requesterId, action })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to manage follow request.');
       setFollowRequests((current) => current.filter((request) => request.requesterId !== requesterId));
-      if (action === 'approve') await loadProfile(firebaseUser);
+      if (action === 'approve') await loadProfile();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to manage follow request.');
     } finally {
@@ -346,21 +327,20 @@ export function ProfileScreen({ username }: { username?: string }) {
   }
 
   async function handleBlock() {
-    if (!firebaseUser || !profile || profile.blockedViewer) return;
+    if (!user || !profile || profile.blockedViewer) return;
     const shouldUnblock = profile.viewerBlocked;
     if (!shouldUnblock && !window.confirm(`Block @${profile.username}? You will no longer see each other's posts or be able to follow/interact.`)) return;
     setIsBlockingSaving(true);
     setError('');
     try {
-      const token = await firebaseUser.getIdToken();
       const response = await fetch('/api/blocks', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetId: profile.id })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `Unable to ${shouldUnblock ? 'unblock' : 'block'} user.`);
-      await loadProfile(firebaseUser);
+      await loadProfile();
     } catch (blockError) {
       setError(blockError instanceof Error ? blockError.message : `Unable to ${shouldUnblock ? 'unblock' : 'block'} user.`);
     } finally {
@@ -370,16 +350,15 @@ export function ProfileScreen({ username }: { username?: string }) {
 
   async function handleSaveStats(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!firebaseUser || !profile?.canManageStats) return;
+    if (!user || !profile?.canManageStats) return;
 
     setIsSavingStats(true);
     setError('');
     setMessage('');
     try {
-      const token = await firebaseUser.getIdToken();
       const response = await fetch('/api/admin/profile-stats', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           targetId: profile.id,
           followers: statsForm.followers === '' ? null : Number(statsForm.followers),
@@ -390,7 +369,7 @@ export function ProfileScreen({ username }: { username?: string }) {
       if (!response.ok) throw new Error(data.error || 'Unable to save profile counts.');
       setIsEditingStats(false);
       setMessage('Profile counts saved.');
-      await loadProfile(firebaseUser);
+      await loadProfile();
     } catch (statsError) {
       setError(statsError instanceof Error ? statsError.message : 'Unable to save profile counts.');
     } finally {
@@ -428,7 +407,7 @@ export function ProfileScreen({ username }: { username?: string }) {
 
   const joined = profile.createdAt ? new Date(profile.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : '';
   const displaySocialLinks = socialFields.filter(({ key }) => profile.socialLinks?.[key]);
-  const isProfileOwner = Boolean(firebaseUser && profile.id === firebaseUser.uid);
+  const isProfileOwner = profile.isOwner;
 
   return (
     <div className="min-h-screen bg-transparent pb-24 text-slate-900 xl:pb-0">
@@ -490,16 +469,16 @@ export function ProfileScreen({ username }: { username?: string }) {
                         </button>
                       </div>
                     </div>
-                  ) : isProfileOwner ? null : firebaseUser && !profile.viewerBlocked && !profile.blockedViewer ? (
+                  ) : isProfileOwner ? null : user && !profile.viewerBlocked && !profile.blockedViewer ? (
                     <button type="button" onClick={handleFollow} disabled={isFollowingSaving} className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60">
                       {isFollowingSaving ? 'Updating...' : profile.isFollowing ? 'Following' : profile.hasRequestedFollow ? 'Cancel request' : profile.isPrivate ? 'Request to follow' : 'Follow'}
                     </button>
-                  ) : firebaseUser ? (
+                  ) : user ? (
                     <span className="text-xs text-slate-500">{profile.blockedViewer ? 'This user has blocked you.' : 'You blocked this user.'}</span>
                   ) : (
                     <Link href="/auth" className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white">Log in to follow</Link>
                   )}
-                  {!isOwnProfile && firebaseUser && !isProfileOwner && !profile.blockedViewer ? (
+                  {!isOwnProfile && user && !isProfileOwner && !profile.blockedViewer ? (
                     <button
                       type="button"
                       onClick={() => void handleBlock()}
@@ -658,7 +637,7 @@ export function ProfileScreen({ username }: { username?: string }) {
                     <PostCard
                       key={post.entryId}
                       post={post}
-                      onChanged={() => void loadProfile(firebaseUser || undefined)}
+                      onChanged={() => void loadProfile()}
                     />
                   ))}
                 </div>

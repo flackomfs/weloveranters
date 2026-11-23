@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifyIdToken } from '@/lib/firebase';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { isAdminUid } from '@/lib/admin';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 import { getAvailableDisplayName } from '@/lib/profile-identity';
@@ -38,11 +38,6 @@ function profileFromRow(row: Record<string, unknown>) {
     followersOverride: row.followers_override == null ? null : Number(row.followers_override),
     followingOverride: row.following_override == null ? null : Number(row.following_override)
   };
-}
-
-function getBearerToken(request: Request) {
-  const authorization = request.headers.get('authorization') || '';
-  return authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
 }
 
 async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewerId: string | null) {
@@ -91,6 +86,7 @@ async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewer
     followers: profile.followersOverride ?? Number(counts.rows[0]?.followers || 0),
     following: profile.followingOverride ?? Number(counts.rows[0]?.following || 0),
     isFollowing: viewerFollows,
+    isOwner: profile.id === viewerId,
     hasRequestedFollow: Boolean(followRequest?.rows[0]),
     canViewProfile,
     viewerBlocked: Number(blockState?.rows[0]?.viewerBlocked || 0) > 0,
@@ -134,7 +130,7 @@ async function ensureProfile(uid: string, email?: string, displayName?: string, 
   const emailName = email?.split('@')[0] || 'user';
   const defaultUsername = makeDefaultUsername(email, uid);
   const defaultDisplayName = await getAvailableDisplayName(tursoClient, displayName || emailName, uid);
-  const safeEmail = email || '';
+  const safeEmail = email || null;
 
   if (current) {
     await tursoClient.execute({
@@ -211,17 +207,11 @@ function normalizeProfileImage(value: unknown, label: string) {
   return normalizeUrl(avatar, 'Photo');
 }
 
-async function authenticate(request: Request) {
-  const token = getBearerToken(request);
-  if (!token) return null;
-  return verifyIdToken(token);
-}
-
 function getServerConfigMessage(error: unknown) {
   const message = error instanceof Error ? error.message : '';
   if (!message) return 'Profile service is unavailable.';
   if (message.includes('not configured') || message.includes('Configure the')) {
-    return 'Profile service is unavailable. Configure the Firebase and Turso environment variables.';
+    return 'Profile service is unavailable. Configure the Clerk and Turso environment variables.';
   }
   return message;
 }
@@ -245,11 +235,11 @@ export async function GET(request: Request) {
 
       if (!result.rows[0]) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
 
-      const viewer = await authenticate(request).catch(() => null);
+      const viewer = await getAuthenticatedUser().catch(() => null);
       return NextResponse.json({ profile: await addFollowState(profileFromRow(result.rows[0]), viewer?.uid || null) });
     }
 
-    const user = await authenticate(request);
+    const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to view your profile.' }, { status: 401 });
 
     const profile = await ensureProfile(user.uid, user.email, user.name, user.picture);
@@ -270,7 +260,7 @@ export async function PATCH(request: Request) {
 
   try {
     await initTursoSchema();
-    const user = await authenticate(request);
+    const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to update your profile privacy.' }, { status: 401 });
 
     const body = await request.json();
@@ -303,7 +293,7 @@ export async function PUT(request: Request) {
 
   try {
     await initTursoSchema();
-    const user = await authenticate(request);
+    const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to update your profile.' }, { status: 401 });
 
     const body = await request.json();

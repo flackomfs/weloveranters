@@ -1,23 +1,16 @@
 import { NextResponse } from 'next/server';
-import { verifyIdToken } from '@/lib/firebase';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { notificationStatement } from '@/lib/notifications';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 import { sendPushNotifications } from '@/lib/web-push';
-
-async function getUserId(request: Request) {
-  const authorization = request.headers.get('authorization') || '';
-  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-  if (!token) return null;
-  return (await verifyIdToken(token)).uid;
-}
 
 export async function GET(request: Request) {
   if (!tursoClient) return NextResponse.json({ error: 'Follow requests are unavailable.' }, { status: 503 });
 
   try {
     await initTursoSchema();
-    const userId = await getUserId(request);
-    if (!userId) return NextResponse.json({ error: 'Sign in to view follow requests.' }, { status: 401 });
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ error: 'Sign in to view follow requests.' }, { status: 401 });
 
     const result = await tursoClient.execute({
       sql: `SELECT r.requester_id AS requesterId, r.created_at AS createdAt,
@@ -30,7 +23,7 @@ export async function GET(request: Request) {
         WHERE r.target_id = ?
         ORDER BY r.created_at ASC
         LIMIT 100`,
-      args: [userId, userId]
+      args: [user.uid, user.uid]
     });
     return NextResponse.json({ requests: result.rows }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
@@ -44,38 +37,38 @@ export async function POST(request: Request) {
 
   try {
     await initTursoSchema();
-    const userId = await getUserId(request);
-    if (!userId) return NextResponse.json({ error: 'Sign in to manage follow requests.' }, { status: 401 });
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ error: 'Sign in to manage follow requests.' }, { status: 401 });
 
     const body = await request.json();
     const requesterId = typeof body.requesterId === 'string' ? body.requesterId : '';
     const action = body.action === 'approve' || body.action === 'reject' ? body.action : '';
-    if (!requesterId || requesterId === userId || !action) {
+    if (!requesterId || requesterId === user.uid || !action) {
       return NextResponse.json({ error: 'Choose a valid follow request action.' }, { status: 400 });
     }
 
     const requestExists = await tursoClient.execute({
       sql: 'SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?',
-      args: [requesterId, userId]
+      args: [requesterId, user.uid]
     });
     if (!requestExists.rows[0]) return NextResponse.json({ error: 'Follow request not found.' }, { status: 404 });
 
     if (action === 'reject') {
       await tursoClient.execute({
         sql: 'DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?',
-        args: [requesterId, userId]
+        args: [requesterId, user.uid]
       });
       return NextResponse.json({ approved: false });
     }
 
     const existingFollow = await tursoClient.execute({
       sql: 'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?',
-      args: [requesterId, userId]
+      args: [requesterId, user.uid]
     });
     if (existingFollow.rows[0]) {
       await tursoClient.execute({
         sql: 'DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?',
-        args: [requesterId, userId]
+        args: [requesterId, user.uid]
       });
       return NextResponse.json({ approved: true });
     }
@@ -84,7 +77,7 @@ export async function POST(request: Request) {
     const notificationId = `follow_${crypto.randomUUID()}`;
     const notification = notificationStatement({
       id: notificationId,
-      recipientId: userId,
+      recipientId: user.uid,
       actorId: requesterId,
       type: 'follow',
       entityId: null,
@@ -97,7 +90,7 @@ export async function POST(request: Request) {
             SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?
           )
           ON CONFLICT(follower_id, following_id) DO NOTHING`,
-        args: [requesterId, userId, now, requesterId, userId]
+        args: [requesterId, user.uid, now, requesterId, user.uid]
       },
       {
         sql: `UPDATE users SET followers_override = CASE
@@ -106,7 +99,7 @@ export async function POST(request: Request) {
           END WHERE id = ? AND EXISTS (
             SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?
           ) AND changes() > 0`,
-        args: [userId, requesterId, userId]
+        args: [user.uid, requesterId, user.uid]
       },
       {
         sql: `UPDATE users SET following_override = CASE
@@ -115,15 +108,15 @@ export async function POST(request: Request) {
           END WHERE id = ? AND EXISTS (
             SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?
           ) AND changes() > 0`,
-        args: [requesterId, requesterId, userId]
+        args: [requesterId, requesterId, user.uid]
       },
-      { sql: 'DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?', args: [requesterId, userId] },
+      { sql: 'DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?', args: [requesterId, user.uid] },
       {
         ...notification,
         sql: `${notification.sql} AND EXISTS (
           SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?
         )`,
-        args: [...notification.args, requesterId, userId]
+        args: [...notification.args, requesterId, user.uid]
       }
     ], 'write');
 

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { ClerkProvider } from '@clerk/nextjs';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { WelcomeConfetti } from '@/components/WelcomeConfetti';
 import './globals.css';
@@ -21,10 +22,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <ThemeProvider>
-          {children}
-          <WelcomeConfetti />
-        </ThemeProvider>
+        <ClerkProvider>
+          <ThemeProvider>
+            {children}
+            <WelcomeConfetti />
+          </ThemeProvider>
+        </ClerkProvider>
       </body>
     </html>
   );

@@ -1,22 +1,14 @@
 import { NextResponse } from 'next/server';
-import { verifyIdToken } from '@/lib/firebase';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
-
-async function getUserId(request: Request) {
-  const authorization = request.headers.get('authorization') || '';
-  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-  if (!token) return null;
-  const user = await verifyIdToken(token);
-  return user.uid;
-}
 
 export async function GET(request: Request) {
   if (!tursoClient) return NextResponse.json({ error: 'Notifications are unavailable.' }, { status: 503 });
 
   try {
     await initTursoSchema();
-    const userId = await getUserId(request);
-    if (!userId) return NextResponse.json({ error: 'Sign in to view notifications.' }, { status: 401 });
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ error: 'Sign in to view notifications.' }, { status: 401 });
 
     const result = await tursoClient.execute({
       sql: `SELECT n.id, n.type, n.entity_id AS entityId, n.created_at AS createdAt,
@@ -45,7 +37,7 @@ export async function GET(request: Request) {
             ))
         ORDER BY n.created_at DESC
         LIMIT 100`,
-      args: [userId, userId, userId]
+      args: [user.uid, user.uid, user.uid]
     });
 
     return NextResponse.json({ notifications: result.rows }, { headers: { 'Cache-Control': 'no-store' } });
@@ -60,20 +52,20 @@ export async function POST(request: Request) {
 
   try {
     await initTursoSchema();
-    const userId = await getUserId(request);
-    if (!userId) return NextResponse.json({ error: 'Sign in to update notifications.' }, { status: 401 });
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ error: 'Sign in to update notifications.' }, { status: 401 });
 
     const body = await request.json();
     const notificationId = typeof body.id === 'string' ? body.id : '';
     if (notificationId) {
       await tursoClient.execute({
         sql: 'UPDATE notifications SET read_at = ? WHERE id = ? AND recipient_id = ?',
-        args: [new Date().toISOString(), notificationId, userId]
+        args: [new Date().toISOString(), notificationId, user.uid]
       });
     } else {
       await tursoClient.execute({
         sql: 'UPDATE notifications SET read_at = ? WHERE recipient_id = ? AND read_at IS NULL',
-        args: [new Date().toISOString(), userId]
+        args: [new Date().toISOString(), user.uid]
       });
     }
     return NextResponse.json({ ok: true });

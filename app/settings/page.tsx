@@ -3,14 +3,12 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { onAuthStateChanged, type User } from 'firebase/auth';
-import { signOut } from 'firebase/auth';
+import { useClerk, useUser } from '@clerk/nextjs';
 import { Check, ChevronDown, LogOut, Palette, Sparkles, UserRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { PushNotificationControl } from '@/components/PushNotificationControl';
 import { useTheme } from '@/components/ThemeProvider';
-import { getFirebaseAuth } from '@/lib/firebase-client';
 import { THEME_PALETTES } from '@/lib/themes';
 
 type AccountProfile = {
@@ -84,7 +82,8 @@ const notificationLabels: Array<{ key: keyof NotificationPreferences; label: str
 export default function SettingsPage() {
   const router = useRouter();
   const { theme, chooseTheme } = useTheme();
-  const [user, setUser] = useState<User | null>(null);
+  const { isLoaded, user } = useUser();
+  const { signOut } = useClerk();
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const [isThemeSaving, setIsThemeSaving] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
@@ -117,26 +116,20 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    const auth = getFirebaseAuth();
-    if (!auth) return;
-
-    return onAuthStateChanged(auth, async (nextUser) => {
-      setUser(nextUser);
-      if (!nextUser) {
-        setProfile(null);
-        setVerificationRequest(null);
-        setPendingVerifications([]);
-        setIsAdmin(false);
-        return;
-      }
-
+    if (!isLoaded) return;
+    if (!user) {
+      setProfile(null);
+      setVerificationRequest(null);
+      setPendingVerifications([]);
+      setIsAdmin(false);
+      return;
+    }
+    void (async () => {
       try {
-        const token = await nextUser.getIdToken();
-        const headers = { Authorization: `Bearer ${token}` };
         const [profileResponse, verificationResponse, preferencesResponse] = await Promise.all([
-          fetch('/api/profile', { cache: 'no-store', headers }),
-          fetch('/api/verification', { cache: 'no-store', headers }),
-          fetch('/api/notification-preferences', { cache: 'no-store', headers })
+          fetch('/api/profile', { cache: 'no-store' }),
+          fetch('/api/verification', { cache: 'no-store' }),
+          fetch('/api/notification-preferences', { cache: 'no-store' })
         ]);
         if (profileResponse.ok) {
           const data = await profileResponse.json();
@@ -152,7 +145,7 @@ export default function SettingsPage() {
           setApprovedVerifications(data.approvedRequests || []);
           setIsAdmin(data.isAdmin);
           if (data.isAdmin) {
-            const reportsResponse = await fetch('/api/reports', { cache: 'no-store', headers });
+            const reportsResponse = await fetch('/api/reports', { cache: 'no-store' });
             const reportsData = await reportsResponse.json();
             if (reportsResponse.ok) setPendingReports(reportsData.reports);
             else setVerificationError(reportsData.error || 'Unable to load reported posts.');
@@ -167,8 +160,8 @@ export default function SettingsPage() {
       } catch {
         setVerificationError('Unable to load account settings.');
       }
-    });
-  }, []);
+    })();
+  }, [isLoaded, user]);
 
   async function submitVerificationRequest() {
     if (!user || isSubmittingVerification) return;
@@ -176,10 +169,9 @@ export default function SettingsPage() {
     setVerificationMessage('');
     setVerificationError('');
     try {
-      const token = await user.getIdToken();
       const response = await fetch('/api/verification', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ badge: requestedBadge })
       });
       const data = await response.json();
@@ -199,10 +191,9 @@ export default function SettingsPage() {
     setVerificationError('');
     setVerificationMessage('');
     try {
-      const token = await user.getIdToken();
       const response = await fetch('/api/verification', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, status })
       });
       const data = await response.json();
@@ -227,10 +218,9 @@ export default function SettingsPage() {
     setPreferenceMessage('');
     setVerificationError('');
     try {
-      const token = await user.getIdToken();
       const response = await fetch('/api/notification-preferences', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ preferences: notificationPreferences })
       });
       const data = await response.json();
@@ -249,10 +239,9 @@ export default function SettingsPage() {
     setReviewingReportId(id);
     setVerificationError('');
     try {
-      const token = await user.getIdToken();
       const response = await fetch('/api/reports', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status })
       });
       const data = await response.json();
@@ -277,9 +266,8 @@ export default function SettingsPage() {
   }
 
   async function handleLogout() {
-    const auth = getFirebaseAuth();
-    if (auth) await signOut(auth);
-    router.replace('/auth');
+    await signOut();
+    router.replace('/sign-in');
     router.refresh();
   }
 
@@ -306,14 +294,14 @@ export default function SettingsPage() {
                 {user ? (
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="flex min-w-0 items-center gap-3">
-                      {profile?.avatarUrl || user.photoURL ? (
-                        <Image src={profile?.avatarUrl || user.photoURL || ''} alt="" width={48} height={48} unoptimized className="h-12 w-12 rounded-full object-cover" />
+                      {profile?.avatarUrl || user.imageUrl ? (
+                        <Image src={profile?.avatarUrl || user.imageUrl || ''} alt="" width={48} height={48} unoptimized className="h-12 w-12 rounded-full object-cover" />
                       ) : (
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-violet-500/20 font-bold text-violet-100">{(user.displayName || user.email || 'U').slice(0, 1).toUpperCase()}</div>
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-violet-500/20 font-bold text-violet-100">{(user.fullName || user.primaryEmailAddress?.emailAddress || 'U').slice(0, 1).toUpperCase()}</div>
                       )}
                       <div className="min-w-0">
-                        <p className="truncate font-semibold text-white">{profile?.name || user.displayName || 'Your account'}</p>
-                        <p className="truncate text-sm text-slate-400">{user.email}</p>
+                        <p className="truncate font-semibold text-white">{profile?.name || user.fullName || 'Your account'}</p>
+                        <p className="truncate text-sm text-slate-400">{user.primaryEmailAddress?.emailAddress}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">

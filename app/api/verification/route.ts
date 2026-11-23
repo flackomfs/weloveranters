@@ -1,24 +1,17 @@
 import { NextResponse } from 'next/server';
 import { isAdminUid } from '@/lib/admin';
-import { verifyIdToken } from '@/lib/firebase';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
 type Badge = 'man' | 'woman';
 type RequestStatus = 'pending' | 'approved' | 'rejected';
-
-async function authenticate(request: Request) {
-  const authorization = request.headers.get('authorization') || '';
-  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-  if (!token) return null;
-  return verifyIdToken(token);
-}
 
 export async function GET(request: Request) {
   if (!tursoClient) return NextResponse.json({ error: 'Verification storage is unavailable.' }, { status: 503 });
 
   try {
     await initTursoSchema();
-    const user = await authenticate(request);
+    const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to manage verification requests.' }, { status: 401 });
 
     const [requestResult, pendingResult, approvedResult] = await Promise.all([
@@ -68,7 +61,7 @@ export async function POST(request: Request) {
 
   try {
     await initTursoSchema();
-    const user = await authenticate(request);
+    const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to request verification.' }, { status: 401 });
 
     const body = await request.json();
@@ -114,7 +107,7 @@ export async function PUT(request: Request) {
 
   try {
     await initTursoSchema();
-    const user = await authenticate(request);
+    const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Admin access required.' }, { status: 401 });
     if (!isAdminUid(user.uid)) return NextResponse.json({ error: 'Admin access required.' }, { status: 403 });
 

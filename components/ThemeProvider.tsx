@@ -1,8 +1,7 @@
 'use client';
 
-import { onAuthStateChanged } from 'firebase/auth';
+import { useUser } from '@clerk/nextjs';
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import { getFirebaseAuth } from '@/lib/firebase-client';
 import { DEFAULT_THEME, getThemePalette, type ThemePalette } from '@/lib/themes';
 
 type ThemeContextValue = {
@@ -24,6 +23,7 @@ function applyTheme(theme: ThemePalette) {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState(DEFAULT_THEME);
+  const { user } = useUser();
 
   const selectTheme = useCallback((nextTheme: ThemePalette) => {
     setTheme(nextTheme);
@@ -35,45 +35,34 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const storedTheme = window.localStorage.getItem(STORAGE_KEY);
     if (storedTheme) selectTheme(getThemePalette(storedTheme));
 
-    const auth = getFirebaseAuth();
-    if (!auth) return;
-
-    return onAuthStateChanged(auth, async (user) => {
-      if (!user) return;
-
+    if (!user) return;
+    void (async () => {
       try {
-        const token = await user.getIdToken();
-        const response = await fetch('/api/settings', {
-          cache: 'no-store',
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const response = await fetch('/api/settings', { cache: 'no-store' });
         if (!response.ok) return;
         const data = await response.json();
         if (data.theme?.id) selectTheme(getThemePalette(data.theme.id));
       } catch {
         // Keep the locally cached palette when account settings cannot be reached.
       }
-    });
-  }, [selectTheme]);
+    })();
+  }, [selectTheme, user]);
 
   const chooseTheme = useCallback(async (nextTheme: ThemePalette) => {
     selectTheme(nextTheme);
-    const auth = getFirebaseAuth();
-    const user = auth?.currentUser;
     if (!user) return true;
 
     try {
-      const token = await user.getIdToken();
       const response = await fetch('/api/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ themeId: nextTheme.id })
       });
       return response.ok;
     } catch {
       return false;
     }
-  }, [selectTheme]);
+  }, [selectTheme, user]);
 
   return <ThemeContext.Provider value={{ theme, chooseTheme }}>{children}</ThemeContext.Provider>;
 }

@@ -1,11 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { onAuthStateChanged, type User } from 'firebase/auth';
+import { useUser } from '@clerk/nextjs';
 import { Bell, CheckCheck, ChevronLeft } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Sidebar } from '@/components/Sidebar';
-import { getFirebaseAuth } from '@/lib/firebase-client';
 
 type NotificationItem = {
   id: string;
@@ -29,36 +28,16 @@ const notificationMessages: Record<NotificationItem['type'], string> = {
 };
 
 export default function NotificationsPage() {
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  const { isLoaded, user } = useUser();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [isMarkingRead, setIsMarkingRead] = useState(false);
 
-  useEffect(() => {
-    const auth = getFirebaseAuth();
-    if (!auth) {
-      setIsAuthReady(true);
-      setIsLoading(false);
-      return;
-    }
-    return onAuthStateChanged(auth, (nextUser) => {
-      setUser(nextUser);
-      setIsAuthReady(true);
-      if (!nextUser) {
-        setNotifications([]);
-        setIsLoading(false);
-      }
-    });
-  }, []);
-
-  const loadNotifications = useCallback(async (currentUser: User) => {
+  const loadNotifications = useCallback(async () => {
     try {
-      const token = await currentUser.getIdToken();
       const response = await fetch('/api/notifications', {
-        cache: 'no-store',
-        headers: { Authorization: `Bearer ${token}` }
+        cache: 'no-store'
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to load notifications.');
@@ -72,20 +51,24 @@ export default function NotificationsPage() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
-    void loadNotifications(user);
-    const intervalId = window.setInterval(() => void loadNotifications(user), 3000);
+    if (!isLoaded) return;
+    if (!user) {
+      setNotifications([]);
+      setIsLoading(false);
+      return;
+    }
+    void loadNotifications();
+    const intervalId = window.setInterval(() => void loadNotifications(), 3000);
     return () => window.clearInterval(intervalId);
-  }, [loadNotifications, user]);
+  }, [isLoaded, loadNotifications, user]);
 
   async function markAllRead() {
     if (!user) return;
     setIsMarkingRead(true);
     try {
-      const token = await user.getIdToken();
       const response = await fetch('/api/notifications', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
       });
       const data = await response.json();
@@ -121,8 +104,8 @@ export default function NotificationsPage() {
               ) : null}
             </header>
 
-            {!isAuthReady || (user && isLoading) ? <p className="py-10 text-center text-sm text-slate-400">Loading notifications...</p> : null}
-            {isAuthReady && !user ? (
+            {!isLoaded || (user && isLoading) ? <p className="py-10 text-center text-sm text-slate-400">Loading notifications...</p> : null}
+            {isLoaded && !user ? (
               <div className="mt-6 rounded-xl border border-white/5 bg-slate-950/40 p-5 text-center">
                 <Bell className="mx-auto h-6 w-6 text-violet-300" />
                 <p className="mt-3 text-sm text-slate-300">Log in to see new followers, reactions, comments, reposts, and posts.</p>
@@ -130,7 +113,7 @@ export default function NotificationsPage() {
               </div>
             ) : null}
             {error ? <p role="alert" className="mt-5 text-sm text-rose-300">{error}</p> : null}
-            {isAuthReady && user && !isLoading && !error && notifications.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No activity yet. New followers, reactions, comments, reposts, and posts will appear here.</p> : null}
+            {isLoaded && user && !isLoading && !error && notifications.length === 0 ? <p className="py-10 text-center text-sm text-slate-400">No activity yet. New followers, reactions, comments, reposts, and posts will appear here.</p> : null}
             {user && notifications.length > 0 ? (
               <div className="mt-5 divide-y divide-white/5">
                 {notifications.map((notification) => (

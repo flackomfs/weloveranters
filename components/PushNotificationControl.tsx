@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { User } from 'firebase/auth';
 
 type PushConfigResponse = {
   configured: boolean;
@@ -16,7 +15,7 @@ function urlBase64ToUint8Array(value: string) {
   return Uint8Array.from(Array.from(raw, (character) => character.charCodeAt(0)));
 }
 
-export function PushNotificationControl({ user }: { user: User | null }) {
+export function PushNotificationControl({ user }: { user: { id: string } | null | undefined }) {
   const [isSupported, setIsSupported] = useState<boolean | null>(null);
   const [isConfigured, setIsConfigured] = useState(false);
   const [publicKey, setPublicKey] = useState('');
@@ -55,13 +54,11 @@ export function PushNotificationControl({ user }: { user: User | null }) {
       try {
         const browserSubscription = await (await navigator.serviceWorker.getRegistration('/'))
           ?.pushManager.getSubscription() || null;
-        const token = await user.getIdToken();
         const endpointQuery = browserSubscription
           ? `?endpoint=${encodeURIComponent(browserSubscription.endpoint)}`
           : '';
         const response = await fetch(`/api/push-subscriptions${endpointQuery}`, {
           cache: 'no-store',
-          headers: { Authorization: `Bearer ${token}` }
         });
         const data = await response.json() as PushConfigResponse & { error?: string };
         if (!response.ok) throw new Error(data.error || 'Unable to load device notification settings.');
@@ -73,7 +70,7 @@ export function PushNotificationControl({ user }: { user: User | null }) {
         if (browserSubscription && data.configured && !data.subscribed) {
           const saveResponse = await fetch('/api/push-subscriptions', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(browserSubscription.toJSON())
           });
           const saveData = await saveResponse.json();
@@ -104,7 +101,6 @@ export function PushNotificationControl({ user }: { user: User | null }) {
 
     try {
       if (isEnabled || subscription) {
-        const token = await user.getIdToken();
         const activeSubscription = subscription
           || await (await navigator.serviceWorker.getRegistration('/'))?.pushManager.getSubscription()
           || null;
@@ -116,7 +112,7 @@ export function PushNotificationControl({ user }: { user: User | null }) {
 
         const response = await fetch('/api/push-subscriptions', {
           method: 'DELETE',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ endpoint: activeSubscription.endpoint })
         });
         const data = await response.json();
@@ -140,7 +136,6 @@ export function PushNotificationControl({ user }: { user: User | null }) {
         : await Notification.requestPermission();
       if (permission !== 'granted') throw new Error('Allow notifications in your browser to enable device alerts.');
 
-      const token = await user.getIdToken();
       await navigator.serviceWorker.register('/sw.js');
       const readyRegistration = await navigator.serviceWorker.ready;
       let activeSubscription = await readyRegistration.pushManager.getSubscription();
@@ -153,7 +148,7 @@ export function PushNotificationControl({ user }: { user: User | null }) {
       }
       const response = await fetch('/api/push-subscriptions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(activeSubscription.toJSON())
       });
       const data = await response.json();

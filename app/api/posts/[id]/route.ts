@@ -1,17 +1,12 @@
 import { NextResponse } from 'next/server';
 import { isAdminUid } from '@/lib/admin';
-import { verifyIdToken } from '@/lib/firebase';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { mentionNotificationStatements, notificationIdsFromStatements, notificationStatement } from '@/lib/notifications';
 import { canViewUserContent } from '@/lib/profile-privacy';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 import { sendPushNotifications } from '@/lib/web-push';
 
 type RouteContext = { params: { id: string } };
-
-function getBearerToken(request: Request) {
-  const authorization = request.headers.get('authorization') || '';
-  return authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-}
 
 async function getActorProfile(client: NonNullable<typeof tursoClient>, uid: string, email?: string, displayName?: string) {
   const result = await client.execute({
@@ -33,15 +28,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
     await initTursoSchema();
     const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [params.id] });
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
-    const viewerToken = getBearerToken(_request);
-    let viewerId = '';
-    if (viewerToken) {
-      try {
-        viewerId = (await verifyIdToken(viewerToken)).uid;
-      } catch {
-        viewerId = '';
-      }
-    }
+    const viewerId = (await getAuthenticatedUser().catch(() => null))?.uid || '';
     if (!await canViewUserContent(tursoClient, String(post.rows[0].user_id), viewerId)) {
       return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
     }
@@ -78,15 +65,8 @@ export async function POST(request: Request, { params }: RouteContext) {
 
   try {
     await initTursoSchema();
-    const token = getBearerToken(request);
-    if (!token) return NextResponse.json({ error: 'Sign in to interact with posts.' }, { status: 401 });
-
-    let user;
-    try {
-      user = await verifyIdToken(token);
-    } catch {
-      return NextResponse.json({ error: 'Your session expired. Sign in again.' }, { status: 401 });
-    }
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ error: 'Sign in to interact with posts.' }, { status: 401 });
 
     const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [params.id] });
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
@@ -227,14 +207,8 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   if (!tursoClient) return NextResponse.json({ error: 'Post storage is unavailable.' }, { status: 503 });
   try {
     await initTursoSchema();
-    const token = getBearerToken(request);
-    if (!token) return NextResponse.json({ error: 'Sign in to edit posts.' }, { status: 401 });
-    let user;
-    try {
-      user = await verifyIdToken(token);
-    } catch {
-      return NextResponse.json({ error: 'Your session expired. Sign in again.' }, { status: 401 });
-    }
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ error: 'Sign in to edit posts.' }, { status: 401 });
 
     const body = await request.json();
     const content = typeof body?.content === 'string' ? body.content.trim() : '';
@@ -277,15 +251,8 @@ export async function DELETE(request: Request, { params }: RouteContext) {
 
   try {
     await initTursoSchema();
-    const token = getBearerToken(request);
-    if (!token) return NextResponse.json({ error: 'Sign in to delete posts.' }, { status: 401 });
-
-    let user;
-    try {
-      user = await verifyIdToken(token);
-    } catch {
-      return NextResponse.json({ error: 'Your session expired. Sign in again.' }, { status: 401 });
-    }
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ error: 'Sign in to delete posts.' }, { status: 401 });
 
     const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [params.id] });
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });

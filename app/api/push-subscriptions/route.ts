@@ -1,30 +1,23 @@
 import { NextResponse } from 'next/server';
-import { verifyIdToken } from '@/lib/firebase';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { getWebPushConfig, isAllowedPushEndpoint } from '@/lib/web-push';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
 export const runtime = 'nodejs';
-
-async function getUserId(request: Request) {
-  const authorization = request.headers.get('authorization') || '';
-  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-  if (!token) return null;
-  return (await verifyIdToken(token)).uid;
-}
 
 export async function GET(request: Request) {
   if (!tursoClient) return NextResponse.json({ error: 'Notifications are unavailable.' }, { status: 503 });
 
   try {
     await initTursoSchema();
-    const userId = await getUserId(request);
-    if (!userId) return NextResponse.json({ error: 'Sign in to manage device notifications.' }, { status: 401 });
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ error: 'Sign in to manage device notifications.' }, { status: 401 });
 
     const endpoint = new URL(request.url).searchParams.get('endpoint') || '';
     const registered = endpoint
       ? await tursoClient.execute({
           sql: 'SELECT 1 FROM web_push_subscriptions WHERE user_id = ? AND endpoint = ?',
-          args: [userId, endpoint]
+          args: [user.uid, endpoint]
         })
       : null;
     const config = getWebPushConfig();
@@ -48,8 +41,8 @@ export async function POST(request: Request) {
 
   try {
     await initTursoSchema();
-    const userId = await getUserId(request);
-    if (!userId) return NextResponse.json({ error: 'Sign in to enable device notifications.' }, { status: 401 });
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ error: 'Sign in to enable device notifications.' }, { status: 401 });
 
     const body = await request.json();
     const endpoint = typeof body?.endpoint === 'string' ? body.endpoint : '';
@@ -75,7 +68,7 @@ export async function POST(request: Request) {
           p256dh = excluded.p256dh,
           auth = excluded.auth,
           updated_at = excluded.updated_at`,
-      args: [userId, endpoint, p256dh, auth, now, now]
+      args: [user.uid, endpoint, p256dh, auth, now, now]
     });
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -89,8 +82,8 @@ export async function DELETE(request: Request) {
 
   try {
     await initTursoSchema();
-    const userId = await getUserId(request);
-    if (!userId) return NextResponse.json({ error: 'Sign in to disable device notifications.' }, { status: 401 });
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ error: 'Sign in to disable device notifications.' }, { status: 401 });
 
     const body = await request.json();
     const endpoint = typeof body?.endpoint === 'string' ? body.endpoint : '';
@@ -99,7 +92,7 @@ export async function DELETE(request: Request) {
     }
     await tursoClient.execute({
       sql: 'DELETE FROM web_push_subscriptions WHERE user_id = ? AND endpoint = ?',
-      args: [userId, endpoint]
+      args: [user.uid, endpoint]
     });
     return NextResponse.json({ ok: true });
   } catch (error) {

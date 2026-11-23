@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifyIdToken } from '@/lib/firebase';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { isAdminUid } from '@/lib/admin';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
@@ -8,11 +8,8 @@ export async function PUT(request: Request) {
 
   try {
     await initTursoSchema();
-    const authorization = request.headers.get('authorization') || '';
-    const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-    if (!token) return NextResponse.json({ error: 'Sign in as an admin to edit profile counts.' }, { status: 401 });
-
-    const admin = await verifyIdToken(token);
+    const admin = await getAuthenticatedUser();
+    if (!admin) return NextResponse.json({ error: 'Sign in as an admin to edit profile counts.' }, { status: 401 });
     if (!isAdminUid(admin.uid)) return NextResponse.json({ error: 'Admin access required.' }, { status: 403 });
 
     const body = await request.json();

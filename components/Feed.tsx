@@ -1,32 +1,23 @@
 'use client';
 
-import { onAuthStateChanged, type User } from 'firebase/auth';
+import { useUser } from '@clerk/nextjs';
 import { useCallback, useEffect, useState } from 'react';
 import { PostCard, type FeedPost } from '@/components/PostCard';
 import { PostComposer } from '@/components/PostComposer';
-import { getFirebaseAuth } from '@/lib/firebase-client';
 
 export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
   const [posts, setPosts] = useState<FeedPost[]>([]);
-  const [user, setUser] = useState<User | null>(null);
+  const { isLoaded, user } = useUser();
   const [sort, setSort] = useState<'latest' | 'popular' | 'following'>('latest');
   const [isLoading, setIsLoading] = useState(true);
   const [isAvailable, setIsAvailable] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
 
-  useEffect(() => {
-    const auth = getFirebaseAuth();
-    if (!auth) return;
-    return onAuthStateChanged(auth, setUser);
-  }, []);
-
   const loadPosts = useCallback(async () => {
     try {
-      const token = user ? await user.getIdToken() : '';
       const response = await fetch(`/api/posts?sort=${sort}`, {
-        cache: 'no-store',
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined
+        cache: 'no-store'
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to load posts.');
@@ -38,7 +29,7 @@ export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
     } finally {
       setIsLoading(false);
     }
-  }, [sort, user]);
+  }, [sort]);
 
   useEffect(() => {
     void loadPosts();
@@ -91,7 +82,7 @@ export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
         {isLoading ? <p className="py-8 text-center text-sm text-slate-500">Loading posts...</p> : null}
         {!isLoading && error ? <p role="alert" className="py-8 text-center text-sm text-rose-600">{error}</p> : null}
         {!isLoading && !error && !isAvailable ? <p className="py-8 text-center text-sm text-slate-500">The feed is unavailable because database storage is not configured.</p> : null}
-        {!isLoading && !error && sort === 'following' && !user ? <p className="py-8 text-center text-sm text-slate-500">Sign in to see posts from people you follow.</p> : null}
+        {!isLoading && !error && isLoaded && sort === 'following' && !user ? <p className="py-8 text-center text-sm text-slate-500">Sign in to see posts from people you follow.</p> : null}
         {!isLoading && !error && isAvailable && posts.length === 0 && !(sort === 'following' && !user) ? <p className="py-8 text-center text-sm text-slate-500">No rants yet. Be the first to share one.</p> : null}
         {!isLoading && !error && posts.length > 0 && filteredPosts.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">No rants match your search.</p> : null}
         {filteredPosts.map((post) => <PostCard key={post.entryId} post={post} onChanged={() => void loadPosts()} />)}

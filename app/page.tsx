@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { AuthScreen } from '@/components/AuthScreen';
+import { SignIn } from '@clerk/nextjs';
 import { TrendingNow } from '@/components/TrendingNow';
 
 export default function HomePage() {
@@ -14,7 +14,7 @@ export default function HomePage() {
 
         <div className="mx-auto mt-6 grid max-w-6xl gap-8 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="flex justify-center lg:justify-start">
-            <AuthScreen />
+            <SignIn routing="hash" signUpUrl="/sign-up" afterSignInUrl="/feed" />
           </div>
 
           <TrendingNow />

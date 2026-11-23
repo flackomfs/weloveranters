@@ -4,12 +4,12 @@ A social venting platform inspired by X/Twitter but oriented around emotional ho
 
 ## Tech stack
 - Next.js + TypeScript + Tailwind CSS
-- Firebase for auth (Google + email/password)
+- Clerk for auth (Google and email/password, configured in Clerk)
 - Turso / LibSQL for database storage
 - App Router structure for a modern social app
 
 ## Environment variables
-This app expects Firebase and Turso credentials to be configured via environment variables.
+This app expects Clerk and Turso credentials to be configured via environment variables.
 
 ### Local development
 1. Copy `.env.example` to `.env.local` and fill in your values.
@@ -26,17 +26,14 @@ Set the same variables in your Vercel project under Project Settings → Environ
 Required values:
 
 ```bash
-# Firebase client configuration
-NEXT_PUBLIC_FIREBASE_API_KEY=
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=
-NEXT_PUBLIC_FIREBASE_APP_ID=
-
-# Firebase server-side verification
-FIREBASE_PROJECT_ID=
-FIREBASE_CLIENT_EMAIL=
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_KEY_HERE\n-----END PRIVATE KEY-----\n"
-ADMIN_UIDS=your_firebase_uid,another_firebase_uid
+# Clerk
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL=/feed
+NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL=/feed
+ADMIN_UIDS=your_clerk_user_id,another_clerk_user_id
 
 # Turso
 TURSO_DATABASE_URL=
@@ -47,14 +44,13 @@ NEXT_PUBLIC_APP_URL=https://your-domain.vercel.app
 ```
 
 Notes:
-- `NEXT_PUBLIC_*` values are used by the browser-side Firebase SDK.
-- `FIREBASE_PRIVATE_KEY` is used by the server-side admin SDK and should contain the private key from your Firebase service account JSON. Keep it quoted in Vercel and preserve the newline escapes.
-- `ADMIN_UIDS` is a comma- or whitespace-separated list of Firebase Authentication UIDs allowed to override displayed follower and following counts on profiles. Keep this server-only; it must not use a `NEXT_PUBLIC_` prefix.
+- Get `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` from the Clerk Dashboard. Enable Google and email/password sign-in methods in Clerk.
+- `ADMIN_UIDS` is a comma- or whitespace-separated list of user IDs allowed to manage admin features. For existing accounts linked by verified email, the existing database ID is retained; new accounts use their Clerk user ID. Keep this server-only.
 - `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` come from your Turso database setup.
 - `CRON_SECRET` protects the scheduled Tagalog mood bot endpoint. Set it in Vercel; the scheduled request must send it as a bearer token.
 - `WEB_PUSH_VAPID_PUBLIC_KEY` and `WEB_PUSH_VAPID_PRIVATE_KEY` enable browser push notifications. Generate them once with `npx web-push generate-vapid-keys`, keep the private key server-only, and set both in Vercel. `WEB_PUSH_SUBJECT` is the site's HTTPS URL or a contact `mailto:` address.
 - `GEMINI_API_KEY` enables opt-in support replies. Keep it server-only; do not use a `NEXT_PUBLIC_` prefix. `GEMINI_MODEL` is optional and defaults to `gemini-3.1-flash-lite`.
-- No Firebase Analytics or Firebase Cloud Messaging variables are required for this app.
+- Existing Firebase accounts are matched to Clerk accounts only when Clerk confirms the same email address is verified. Existing profile IDs and associated content are kept. Firebase passwords cannot be transferred; users will authenticate through the sign-in methods enabled in Clerk.
 
 ## Device push notifications
 
@@ -79,8 +75,8 @@ The composer includes prompt starters and a live preview for larger `#` posts. S
 ## Current pages
 - `/` landing page
 - `/feed` feed view
-- `/auth` auth screen
+- `/sign-in` and `/sign-up` Clerk authentication pages (`/auth` redirects to sign-in)
 - `/profile` profile page
 
 ## Current status
-This repo is set up as a working starter app with Firebase/Turso placeholders ready for real credentials. When the environment variables are added in Vercel, the app can connect to your real auth and database services.
+This repo uses Clerk for authentication and Turso for database storage. Add the required credentials in Vercel before deployment.

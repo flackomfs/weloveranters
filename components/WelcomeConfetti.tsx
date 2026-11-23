@@ -1,9 +1,8 @@
 'use client';
 
-import { onAuthStateChanged } from 'firebase/auth';
+import { useUser } from '@clerk/nextjs';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { getFirebaseAuth } from '@/lib/firebase-client';
 
 type ConfettiPiece = {
   id: number;
@@ -63,27 +62,20 @@ function createConfettiPieces(): ConfettiPiece[] {
 export function WelcomeConfetti() {
   const pathname = usePathname();
   const [pieces, setPieces] = useState<ConfettiPiece[]>([]);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { isLoaded, isSignedIn } = useUser();
   const hasCelebrated = useRef(false);
 
   useEffect(() => {
-    const auth = getFirebaseAuth();
-    if (!auth) return;
-
-    return onAuthStateChanged(auth, (user) => {
-      setIsAuthenticated(Boolean(user));
-      if (!user) {
-        hasCelebrated.current = false;
-        setPieces([]);
-      }
-    });
-  }, []);
+    if (!isLoaded || isSignedIn) return;
+    hasCelebrated.current = false;
+    setPieces([]);
+  }, [isLoaded, isSignedIn]);
 
   useEffect(() => {
-    if (!isAuthenticated || pathname !== '/feed' || hasCelebrated.current) return;
+    if (!isLoaded || !isSignedIn || pathname !== '/feed' || hasCelebrated.current) return;
     hasCelebrated.current = true;
     setPieces(createConfettiPieces());
-  }, [isAuthenticated, pathname]);
+  }, [isLoaded, isSignedIn, pathname]);
 
   useEffect(() => {
     if (!pieces.length) return;

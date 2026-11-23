@@ -1,10 +1,9 @@
 "use client";
 
 import Image from 'next/image';
-import { onAuthStateChanged, type User } from 'firebase/auth';
+import { useUser } from '@clerk/nextjs';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { RichText } from '@/components/RichText';
-import { getFirebaseAuth } from '@/lib/firebase-client';
 import { parseSupportBotCommand } from '@/lib/support-bot-command';
 
 type ComposerProfile = {
@@ -19,76 +18,56 @@ const promptStarters = [
 ];
 
 export function PostComposer({ onPosted }: { onPosted: () => void }) {
+  const { isLoaded, user } = useUser();
   const [content, setContent] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<ComposerProfile | null>(null);
   const [isProfileLoaded, setIsProfileLoaded] = useState(false);
   const [profileError, setProfileError] = useState('');
-  const [isAuthReady, setIsAuthReady] = useState(false);
   const [isDraftReady, setIsDraftReady] = useState(false);
   const [draftStatus, setDraftStatus] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isLargePost = content.trimStart().startsWith('#');
 
   useEffect(() => {
-    const auth = getFirebaseAuth();
-    if (!auth) {
-      setIsAuthReady(true);
-      setIsProfileLoaded(true);
-      return;
-    }
-
+    if (!isLoaded) return;
     let active = true;
-    let profileRequest = 0;
-    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
-      setUser(nextUser);
-      setIsAuthReady(true);
-      setProfile(null);
-      setProfileError('');
-      setIsProfileLoaded(!nextUser);
-      const requestId = ++profileRequest;
-      if (!nextUser) return;
+    setProfile(null);
+    setProfileError('');
+    setIsProfileLoaded(!user);
+    if (!user) return () => { active = false; };
 
-      void (async () => {
-        try {
-          const token = await nextUser.getIdToken();
-          const response = await fetch('/api/profile', {
-            cache: 'no-store',
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || 'Unable to load your profile.');
-          if (
-            !data.profile ||
-            typeof data.profile.name !== 'string' ||
-            typeof data.profile.avatarUrl !== 'string'
-          ) {
-            throw new Error('The profile response is incomplete.');
-          }
-          if (active && requestId === profileRequest) {
-            setProfile({ name: data.profile.name, avatarUrl: data.profile.avatarUrl });
-          }
-        } catch (error) {
-          if (active && requestId === profileRequest) {
-            console.error('Unable to load profile for post composer:', error);
-            setProfileError('Unable to load your latest profile details.');
-          }
-        } finally {
-          if (active && requestId === profileRequest) setIsProfileLoaded(true);
+    void (async () => {
+      try {
+        const response = await fetch('/api/profile', { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to load your profile.');
+        if (
+          !data.profile ||
+          typeof data.profile.name !== 'string' ||
+          typeof data.profile.avatarUrl !== 'string'
+        ) {
+          throw new Error('The profile response is incomplete.');
         }
-      })();
-    });
+        if (active) setProfile({ name: data.profile.name, avatarUrl: data.profile.avatarUrl });
+      } catch (error) {
+        if (active) {
+          console.error('Unable to load profile for post composer:', error);
+          setProfileError('Unable to load your latest profile details.');
+        }
+      } finally {
+        if (active) setIsProfileLoaded(true);
+      }
+    })();
 
     return () => {
       active = false;
-      unsubscribe();
     };
-  }, []);
+  }, [isLoaded, user]);
 
   useEffect(() => {
-    if (!isAuthReady) return;
+    if (!isLoaded) return;
     let active = true;
     setIsDraftReady(false);
 
@@ -106,10 +85,8 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
           return;
         }
 
-        const token = await user.getIdToken();
         const response = await fetch('/api/drafts', {
-          cache: 'no-store',
-          headers: { Authorization: `Bearer ${token}` }
+          cache: 'no-store'
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Unable to load your draft.');
@@ -118,7 +95,7 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
         } else if (localDraft) {
           const saveResponse = await fetch('/api/drafts', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: localDraft })
           });
           const saveData = await saveResponse.json();
@@ -137,7 +114,7 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
     return () => {
       active = false;
     };
-  }, [isAuthReady, user]);
+  }, [isLoaded, user]);
 
   useEffect(() => {
     if (!isDraftReady) return;
@@ -155,10 +132,9 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
 
       void (async () => {
         try {
-          const token = await user.getIdToken();
           const response = await fetch('/api/drafts', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content })
           });
           const data = await response.json();
@@ -193,10 +169,9 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
     setIsSubmitting(true);
 
     try {
-      const token = await user.getIdToken();
       const response = await fetch('/api/posts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content, generateBotReply: Boolean(supportCommand) })
       });
 
@@ -231,14 +206,14 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
 
   const avatarUrl = profile
     ? profile.avatarUrl
-    : user && isProfileLoaded && !profileError ? user.photoURL || '' : '';
+    : user && isProfileLoaded && !profileError ? user.imageUrl || '' : '';
   const displayName = profile?.name || (
     !user
       ? 'Share a rant'
       : profileError
         ? 'Profile unavailable'
         : isProfileLoaded
-          ? user.displayName || user.email || 'Your profile'
+          ? user.fullName || user.primaryEmailAddress?.emailAddress || 'Your profile'
           : 'Loading profile...'
   );
 
@@ -281,7 +256,7 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
         placeholder={!user ? 'Write a draft. Sign in to publish it.' : 'What is weighing on your mind today?'}
         rows={2}
         maxLength={2000}
-        disabled={!isAuthReady}
+        disabled={!isLoaded}
         className="w-full resize-none rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-800 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:cursor-not-allowed disabled:bg-slate-100 sm:p-3"
       />
 
@@ -296,7 +271,7 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
         <p className="text-[10px] text-slate-500 sm:text-xs">{!user ? 'You need to sign in before posting.' : 'Keep it honest, kind, and respectful.'}</p>
         <button
           type="submit"
-          disabled={!isAuthReady || !user || isSubmitting}
+          disabled={!isLoaded || !user || isSubmitting}
           className="rounded-full bg-violet-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-50 sm:px-4 sm:text-sm"
         >
           {!user ? 'Login to post' : isSubmitting ? 'Posting...' : 'Post rant'}

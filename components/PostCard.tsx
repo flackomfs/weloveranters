@@ -2,9 +2,9 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
+import { useAuth } from '@clerk/nextjs';
 import { Flag, Heart, MessageCircle, Pencil, Repeat2, Send, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { getFirebaseAuth } from '@/lib/firebase-client';
 import { RichText } from '@/components/RichText';
 
 export type FeedPost = {
@@ -45,6 +45,7 @@ type PostComment = {
 };
 
 export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () => void }) {
+  const { isLoaded, isSignedIn } = useAuth();
   const [likes, setLikes] = useState(post.likes);
   const [commentCount, setCommentCount] = useState(post.comments);
   const [reposts, setReposts] = useState(post.reposts);
@@ -78,9 +79,8 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
   }, [post.comments, post.isReposted, post.likes, post.reposts]);
 
   async function getAuthHeaders() {
-    const user = getFirebaseAuth()?.currentUser;
-    if (!user) throw new Error('Sign in to interact with rants.');
-    return { Authorization: `Bearer ${await user.getIdToken()}` };
+    if (!isLoaded || !isSignedIn) throw new Error('Sign in to interact with rants.');
+    return {};
   }
 
   async function handleLike() {
@@ -108,9 +108,7 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
     setIsCommentsLoading(true);
     setError('');
     try {
-      const user = getFirebaseAuth()?.currentUser;
-      const headers = user ? { Authorization: `Bearer ${await user.getIdToken()}` } : undefined;
-      const response = await fetch(`/api/posts/${encodeURIComponent(post.id)}`, { cache: 'no-store', headers });
+      const response = await fetch(`/api/posts/${encodeURIComponent(post.id)}`, { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to load comments.');
       setComments(data.comments);

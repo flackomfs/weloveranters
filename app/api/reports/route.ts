@@ -1,20 +1,13 @@
 import { NextResponse } from 'next/server';
 import { isAdminUid } from '@/lib/admin';
-import { verifyIdToken } from '@/lib/firebase';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
-
-async function getUser(request: Request) {
-  const authorization = request.headers.get('authorization') || '';
-  const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-  if (!token) return null;
-  return verifyIdToken(token);
-}
 
 export async function GET(request: Request) {
   if (!tursoClient) return NextResponse.json({ error: 'Reports are unavailable.' }, { status: 503 });
   try {
     await initTursoSchema();
-    const user = await getUser(request);
+    const user = await getAuthenticatedUser();
     if (!user || !isAdminUid(user.uid)) return NextResponse.json({ error: 'Admin access required.' }, { status: user ? 403 : 401 });
     const result = await tursoClient.execute({
       sql: `SELECT r.id, r.post_id AS postId, r.reporter_id AS reporterId, r.reason, r.details,
@@ -39,7 +32,7 @@ export async function POST(request: Request) {
   if (!tursoClient) return NextResponse.json({ error: 'Reports are unavailable.' }, { status: 503 });
   try {
     await initTursoSchema();
-    const user = await getUser(request);
+    const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to report posts.' }, { status: 401 });
     const body = await request.json();
     const postId = typeof body?.postId === 'string' ? body.postId : '';
@@ -70,7 +63,7 @@ export async function PUT(request: Request) {
   if (!tursoClient) return NextResponse.json({ error: 'Reports are unavailable.' }, { status: 503 });
   try {
     await initTursoSchema();
-    const user = await getUser(request);
+    const user = await getAuthenticatedUser();
     if (!user || !isAdminUid(user.uid)) return NextResponse.json({ error: 'Admin access required.' }, { status: user ? 403 : 401 });
     const body = await request.json();
     const id = typeof body?.id === 'string' ? body.id : '';

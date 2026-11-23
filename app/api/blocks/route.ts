@@ -1,15 +1,13 @@
 import { NextResponse } from 'next/server';
-import { verifyIdToken } from '@/lib/firebase';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
 export async function POST(request: Request) {
   if (!tursoClient) return NextResponse.json({ error: 'Block storage is unavailable.' }, { status: 503 });
   try {
     await initTursoSchema();
-    const authorization = request.headers.get('authorization') || '';
-    const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-    if (!token) return NextResponse.json({ error: 'Sign in to block users.' }, { status: 401 });
-    const user = await verifyIdToken(token);
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ error: 'Sign in to block users.' }, { status: 401 });
     const body = await request.json();
     const targetId = typeof body?.targetId === 'string' ? body.targetId : '';
     if (!targetId || targetId === user.uid) return NextResponse.json({ error: 'Invalid user to block.' }, { status: 400 });

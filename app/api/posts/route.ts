@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { isAdminUid } from '@/lib/admin';
-import { verifyIdToken } from '@/lib/firebase';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { mentionNotificationStatements, notificationIdsFromStatements, notificationStatement } from '@/lib/notifications';
 import { getAvailableDisplayName } from '@/lib/profile-identity';
 import { generateSupportBotReply } from '@/lib/gemini-support-bot';
@@ -10,21 +10,6 @@ import { sendPushNotifications } from '@/lib/web-push';
 
 const supportBotUserId = 'system:tagalog-mood-bot';
 
-function getBearerToken(request: Request) {
-  const authorization = request.headers.get('authorization') || '';
-  return authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-}
-
-async function getViewerId(request: Request) {
-  const token = getBearerToken(request);
-  if (!token) return '';
-  try {
-    return (await verifyIdToken(token)).uid;
-  } catch {
-    return '';
-  }
-}
-
 export async function GET(request: Request) {
   if (!tursoClient) {
     return NextResponse.json({ posts: [], available: false }, { headers: { 'Cache-Control': 'no-store' } });
@@ -32,7 +17,7 @@ export async function GET(request: Request) {
 
   try {
     await initTursoSchema();
-    const viewerId = await getViewerId(request);
+    const viewerId = (await getAuthenticatedUser().catch(() => null))?.uid || '';
     const searchParams = new URL(request.url).searchParams;
     const username = searchParams.get('username')?.toLowerCase() || '';
     const requestedSort = searchParams.get('sort');
@@ -152,15 +137,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Post storage is unavailable.' }, { status: 503 });
     }
 
-    const token = getBearerToken(request);
-    if (!token) return NextResponse.json({ error: 'Sign in before posting.' }, { status: 401 });
-
-    let user;
-    try {
-      user = await verifyIdToken(token);
-    } catch {
-      return NextResponse.json({ error: 'Your session expired. Sign in again.' }, { status: 401 });
-    }
+    const user = await getAuthenticatedUser();
+    if (!user) return NextResponse.json({ error: 'Sign in before posting.' }, { status: 401 });
     if (supportCommand && body?.generateBotReply !== true) {
       return NextResponse.json({ error: 'Confirm that this post will be sent to Gemini for a public bot reply.' }, { status: 400 });
     }
@@ -171,14 +149,14 @@ export async function POST(request: Request) {
     const defaultUsername = `${usernameBase}_${user.uid.slice(-12).toLowerCase()}`;
     const defaultDisplayName = await getAvailableDisplayName(tursoClient, user.name || emailName, user.uid);
     await tursoClient.execute({
-      sql: `INSERT INTO users (id, email, display_name, username, avatar_url)
-        VALUES (?, ?, ?, ?, ?)
+      sql: `INSERT INTO users (id, clerk_user_id, email, display_name, username, avatar_url)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           email = COALESCE(users.email, excluded.email),
           display_name = COALESCE(users.display_name, excluded.display_name),
           username = COALESCE(users.username, excluded.username),
           avatar_url = COALESCE(users.avatar_url, excluded.avatar_url)`,
-      args: [user.uid, user.email || '', defaultDisplayName, defaultUsername, user.picture || '']
+      args: [user.uid, user.clerkUserId, user.email || null, defaultDisplayName, defaultUsername, user.picture || '']
     });
 
     const createdAt = new Date().toISOString();
