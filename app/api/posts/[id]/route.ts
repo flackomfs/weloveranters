@@ -6,7 +6,7 @@ import { canViewUserContent } from '@/lib/profile-privacy';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 import { sendPushNotifications } from '@/lib/web-push';
 
-type RouteContext = { params: { id: string } };
+type RouteContext = { params: Promise<{ id: string }> };
 
 async function getActorProfile(client: NonNullable<typeof tursoClient>, uid: string, email?: string, displayName?: string) {
   const result = await client.execute({
@@ -22,11 +22,12 @@ async function getActorProfile(client: NonNullable<typeof tursoClient>, uid: str
 }
 
 export async function GET(_request: Request, { params }: RouteContext) {
+  const { id } = await params;
   if (!tursoClient) return NextResponse.json({ error: 'Post storage is unavailable.' }, { status: 503 });
 
   try {
     await initTursoSchema();
-    const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [params.id] });
+    const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [id] });
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
     const viewerId = (await getAuthenticatedUser().catch(() => null))?.uid || '';
     if (!await canViewUserContent(tursoClient, String(post.rows[0].user_id), viewerId)) {
@@ -44,7 +45,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
         WHERE c.post_id = ?
         ORDER BY c.created_at ASC
         LIMIT 100`,
-      args: [params.id]
+      args: [id]
     });
 
     const comments = result.rows.map((row) => ({
@@ -61,6 +62,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
 }
 
 export async function POST(request: Request, { params }: RouteContext) {
+  const { id } = await params;
   if (!tursoClient) return NextResponse.json({ error: 'Post storage is unavailable.' }, { status: 503 });
 
   try {
@@ -68,7 +70,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to interact with posts.' }, { status: 401 });
 
-    const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [params.id] });
+    const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [id] });
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
     const postAuthorId = String(post.rows[0].user_id);
     if (!await canViewUserContent(tursoClient, postAuthorId, user.uid)) {
@@ -90,7 +92,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
     if (action === 'like') {
       const statements: Array<{ sql: string; args: (string | number | null)[] }> = [
-        { sql: 'UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id = ?', args: [params.id] }
+        { sql: 'UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id = ?', args: [id] }
       ];
       const notificationIds: string[] = [];
       if (postAuthorId !== user.uid) {
@@ -98,10 +100,10 @@ export async function POST(request: Request, { params }: RouteContext) {
         notificationIds.push(notificationId);
         statements.push(notificationStatement({
           id: notificationId, recipientId: postAuthorId, actorId: user.uid,
-          type: 'like', entityId: params.id, createdAt: new Date().toISOString()
+          type: 'like', entityId: id, createdAt: new Date().toISOString()
         }));
       }
-      statements.push({ sql: 'SELECT likes FROM posts WHERE id = ?', args: [params.id] });
+      statements.push({ sql: 'SELECT likes FROM posts WHERE id = ?', args: [id] });
       const results = await tursoClient.batch(statements, 'write');
       await sendPushNotifications(tursoClient, notificationIds);
       return NextResponse.json({ likes: Number(results[results.length - 1].rows[0]?.likes || 0) });
@@ -118,7 +120,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       if (parentCommentId) {
         const parent = await tursoClient.execute({
           sql: 'SELECT user_id, parent_comment_id FROM post_comments WHERE id = ? AND post_id = ?',
-          args: [parentCommentId, params.id]
+          args: [parentCommentId, id]
         });
         if (!parent.rows[0] || parent.rows[0].parent_comment_id) {
           return NextResponse.json({ error: 'Replies must be attached to a top-level comment.' }, { status: 400 });
@@ -128,7 +130,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
       const comment = {
         id: `comment_${crypto.randomUUID()}`,
-        postId: params.id,
+        postId: id,
         userId: user.uid,
         authorName: actor.name,
         authorUsername: actor.username,
@@ -148,20 +150,20 @@ export async function POST(request: Request, { params }: RouteContext) {
       if (postAuthorId !== user.uid) {
         notificationStatements.push(notificationStatement({
           id: `comment_${crypto.randomUUID()}`, recipientId: postAuthorId, actorId: user.uid,
-          type: 'comment', entityId: params.id, createdAt: comment.createdAt
+          type: 'comment', entityId: id, createdAt: comment.createdAt
         }));
       }
       if (parentAuthorId && parentAuthorId !== user.uid && parentAuthorId !== postAuthorId) {
         notificationStatements.push(notificationStatement({
           id: `comment_reply_${crypto.randomUUID()}`, recipientId: parentAuthorId, actorId: user.uid,
-          type: 'comment', entityId: params.id, createdAt: comment.createdAt
+          type: 'comment', entityId: id, createdAt: comment.createdAt
         }));
       }
-      notificationStatements.push(...await mentionNotificationStatements(tursoClient, content, user.uid, params.id, comment.createdAt));
+      notificationStatements.push(...await mentionNotificationStatements(tursoClient, content, user.uid, id, comment.createdAt));
       const results = await tursoClient.batch([
         ...statements,
         ...notificationStatements,
-        { sql: 'SELECT COUNT(*) AS count FROM post_comments WHERE post_id = ?', args: [params.id] }
+        { sql: 'SELECT COUNT(*) AS count FROM post_comments WHERE post_id = ?', args: [id] }
       ], 'write');
       await sendPushNotifications(tursoClient, notificationIdsFromStatements(notificationStatements));
       return NextResponse.json({ comment, comments: Number(results[results.length - 1].rows[0]?.count || 0) });
@@ -173,14 +175,14 @@ export async function POST(request: Request, { params }: RouteContext) {
           sql: `INSERT INTO post_reposts (user_id, post_id, author_name, author_username, created_at)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id, post_id) DO NOTHING`,
-          args: [user.uid, params.id, actor.name, actor.username, new Date().toISOString()]
+          args: [user.uid, id, actor.name, actor.username, new Date().toISOString()]
         }
       ];
       const notificationStatements: Array<ReturnType<typeof notificationStatement>> = [];
       if (postAuthorId !== user.uid) {
         const notification = notificationStatement({
           id: `repost_${crypto.randomUUID()}`, recipientId: postAuthorId, actorId: user.uid,
-          type: 'repost', entityId: params.id, createdAt: new Date().toISOString()
+          type: 'repost', entityId: id, createdAt: new Date().toISOString()
         });
         notificationStatements.push({
           ...notification,
@@ -190,7 +192,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       const results = await tursoClient.batch([
         ...statements,
         ...notificationStatements,
-        { sql: 'SELECT COUNT(*) AS count FROM post_reposts WHERE post_id = ?', args: [params.id] }
+        { sql: 'SELECT COUNT(*) AS count FROM post_reposts WHERE post_id = ?', args: [id] }
       ], 'write');
       await sendPushNotifications(tursoClient, notificationIdsFromStatements(notificationStatements));
       return NextResponse.json({ reposted: true, reposts: Number(results[results.length - 1].rows[0]?.count || 0) });
@@ -204,6 +206,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 }
 
 export async function PATCH(request: Request, { params }: RouteContext) {
+  const { id } = await params;
   if (!tursoClient) return NextResponse.json({ error: 'Post storage is unavailable.' }, { status: 503 });
   try {
     await initTursoSchema();
@@ -218,7 +221,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
     const post = await tursoClient.execute({
       sql: 'SELECT user_id, created_at FROM posts WHERE id = ?',
-      args: [params.id]
+      args: [id]
     });
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
     if (String(post.rows[0].user_id) !== user.uid) return NextResponse.json({ error: 'You can only edit your own posts.' }, { status: 403 });
@@ -231,11 +234,11 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     const matches = content.match(/#[a-zA-Z0-9_]+/g) || [];
     const hashtags = Array.from(new Set(matches.map((tag: string) => tag.slice(1).toLowerCase())));
     const statements = [
-      { sql: 'UPDATE posts SET content = ?, updated_at = ? WHERE id = ?', args: [content, updatedAt, params.id] },
-      { sql: 'DELETE FROM post_hashtags WHERE post_id = ?', args: [params.id] },
+      { sql: 'UPDATE posts SET content = ?, updated_at = ? WHERE id = ?', args: [content, updatedAt, id] },
+      { sql: 'DELETE FROM post_hashtags WHERE post_id = ?', args: [id] },
       ...hashtags.map((hashtag) => ({
         sql: 'INSERT INTO post_hashtags (hashtag, post_id, created_at) VALUES (?, ?, ?)',
-        args: [hashtag, params.id, updatedAt]
+        args: [hashtag, id, updatedAt]
       }))
     ];
     await tursoClient.batch(statements, 'write');
@@ -247,6 +250,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 }
 
 export async function DELETE(request: Request, { params }: RouteContext) {
+  const { id } = await params;
   if (!tursoClient) return NextResponse.json({ error: 'Post storage is unavailable.' }, { status: 503 });
 
   try {
@@ -254,7 +258,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to delete posts.' }, { status: 401 });
 
-    const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [params.id] });
+    const post = await tursoClient.execute({ sql: 'SELECT id, user_id FROM posts WHERE id = ?', args: [id] });
     if (!post.rows[0]) return NextResponse.json({ error: 'Post not found.' }, { status: 404 });
     if (!isAdminUid(user.uid) && String(post.rows[0].user_id) !== user.uid) {
       return NextResponse.json({ error: 'You can only delete your own posts.' }, { status: 403 });
@@ -262,9 +266,9 @@ export async function DELETE(request: Request, { params }: RouteContext) {
 
     const linkedReplies = await tursoClient.execute({
       sql: 'SELECT reply_post_id FROM post_bot_responses WHERE source_post_id = ?',
-      args: [params.id]
+      args: [id]
     });
-    const postIds = [params.id, ...linkedReplies.rows.map((row) => String(row.reply_post_id))];
+    const postIds = [id, ...linkedReplies.rows.map((row) => String(row.reply_post_id))];
     const placeholders = postIds.map(() => '?').join(', ');
 
     await tursoClient.batch([

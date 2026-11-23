@@ -14,7 +14,7 @@ export default function HomePage() {
 
         <div className="mx-auto mt-6 grid max-w-6xl gap-8 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="flex justify-center lg:justify-start">
-            <SignIn routing="hash" signUpUrl="/sign-up" afterSignInUrl="/feed" />
+            <SignIn routing="hash" signUpUrl="/sign-up" forceRedirectUrl="/feed" />
           </div>
 
           <TrendingNow />

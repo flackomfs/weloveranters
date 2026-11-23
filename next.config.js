@@ -10,10 +10,8 @@ const nextConfig = {
       }
     ]
   },
-  experimental: {
-    outputFileTracingIncludes: {
-      '/*': ['./node_modules/@libsql/isomorphic-ws/web.mjs']
-    }
+  outputFileTracingIncludes: {
+    '/*': ['./node_modules/@libsql/isomorphic-ws/web.mjs']
   }
 };
 

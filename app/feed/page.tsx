@@ -3,11 +3,12 @@ import { Feed } from '@/components/Feed';
 import { TrendingNow } from '@/components/TrendingNow';
 
 type FeedPageProps = {
-  searchParams: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 };
 
-export default function FeedPage({ searchParams }: FeedPageProps) {
-  const isExplore = searchParams.view === 'explore';
+export default async function FeedPage({ searchParams }: FeedPageProps) {
+  const resolvedSearchParams = await searchParams;
+  const isExplore = resolvedSearchParams.view === 'explore';
 
   return (
     <div className="min-h-screen bg-transparent text-slate-100">
