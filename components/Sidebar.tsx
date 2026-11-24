@@ -5,8 +5,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
 import { Bell, Bookmark, Compass, Home, LogIn, Settings, UserRound } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import logo from '@/src/images/logo.png';
+import { useRealtime } from '@/components/RealtimeProvider';
 
 const navItems = [
   { label: 'Home', href: '/feed', icon: Home },
@@ -23,40 +24,36 @@ export function Sidebar({ isExplore = false }: { isExplore?: boolean } = {}) {
   const [profile, setProfile] = useState<{ name: string; avatarUrl: string; username: string } | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  useEffect(() => {
+  const refreshAccountData = useCallback(async () => {
     if (!user) {
       setProfile(null);
       setUnreadCount(0);
       return;
     }
 
-    let isMounted = true;
-    async function refreshAccountData() {
-      try {
-        const [profileResponse, notificationsResponse] = await Promise.all([
-          fetch('/api/profile', { cache: 'no-store' }),
-          fetch('/api/notifications', { cache: 'no-store' })
-        ]);
-        if (profileResponse.ok) {
-          const data = await profileResponse.json();
-          if (isMounted) setProfile(data.profile);
-        }
-        if (notificationsResponse.ok) {
-          const data = await notificationsResponse.json();
-          if (isMounted) setUnreadCount(data.notifications.filter((item: { readAt: string | null }) => !item.readAt).length);
-        }
-      } catch {
-        return;
+    try {
+      const [profileResponse, notificationsResponse] = await Promise.all([
+        fetch('/api/profile', { cache: 'no-store' }),
+        fetch('/api/notifications', { cache: 'no-store' })
+      ]);
+      if (profileResponse.ok) {
+        const data = await profileResponse.json();
+        setProfile(data.profile);
       }
+      if (notificationsResponse.ok) {
+        const data = await notificationsResponse.json();
+        setUnreadCount(data.notifications.filter((item: { readAt: string | null }) => !item.readAt).length);
+      }
+    } catch (error) {
+      console.error('Unable to refresh sidebar account data:', error instanceof Error ? error.message : 'Unknown error');
     }
-
-    void refreshAccountData();
-    const intervalId = window.setInterval(() => void refreshAccountData(), 3000);
-    return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
-    };
   }, [user]);
+
+  useRealtime(refreshAccountData);
+
+  useEffect(() => {
+    void refreshAccountData();
+  }, [refreshAccountData]);
 
   return (
     <>

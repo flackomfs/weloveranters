@@ -5,6 +5,7 @@ import { useUser } from '@clerk/nextjs';
 import { Bell, CheckCheck, ChevronLeft } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Sidebar } from '@/components/Sidebar';
+import { useRealtime } from '@/components/RealtimeProvider';
 
 type NotificationItem = {
   id: string;
@@ -50,6 +51,12 @@ export default function NotificationsPage() {
     }
   }, []);
 
+  const refreshOnRealtime = useCallback(() => {
+    if (user) void loadNotifications();
+  }, [loadNotifications, user]);
+
+  useRealtime(refreshOnRealtime);
+
   useEffect(() => {
     if (!isLoaded) return;
     if (!user) {
@@ -58,8 +65,6 @@ export default function NotificationsPage() {
       return;
     }
     void loadNotifications();
-    const intervalId = window.setInterval(() => void loadNotifications(), 3000);
-    return () => window.clearInterval(intervalId);
   }, [isLoaded, loadNotifications, user]);
 
   async function markAllRead() {

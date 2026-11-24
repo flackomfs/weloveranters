@@ -54,7 +54,8 @@ Notes:
 - Get `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` from the Clerk Dashboard. Enable Google and email/password sign-in methods in Clerk.
 - `ADMIN_UIDS` is a comma- or whitespace-separated list of user IDs allowed to manage admin features. For existing accounts linked by verified email, the existing database ID is retained; new accounts use their Clerk user ID. Keep this server-only.
 - `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` come from your Turso database setup.
-- To enable account sharding, configure databases 2 and 3 with their URL and auth token. Set each `TURSO_DATABASE*_MAX_BYTES` to that database's capacity in bytes; new accounts are assigned to the first database below 95% of that limit. Existing accounts remain on their assigned database, so their future activity can still grow that database; this policy does not move or rebalance existing accounts. The application measures SQLite page usage, and an account cannot be created if every configured database is at or above the threshold.
+- To enable account sharding, configure databases 2 and 3 with their URL and auth token. Set each `TURSO_DATABASE*_MAX_BYTES` to that database's capacity in bytes; new accounts are assigned to the first database below 95% of that limit (DB1, then DB2, then DB3). Existing accounts remain on their assigned database, so their future activity can still grow that database; this policy does not move or rebalance existing accounts. The application measures SQLite page usage, and an account cannot be created if every configured database is at or above the threshold.
+- The account/identity directory remains on DB1 so account IDs, verified emails, and names can be looked up globally. The 5% headroom after account placement moves to another shard supports these small directory writes, but it is finite; for very large growth, move the directory to a separate metadata store before DB1 runs out of space.
 - Configure shard credentials as server-side environment variables/secrets in Cloudflare Workers or Vercel. Never commit real Turso tokens. The app expects the databases to be configured in order (1, then 2, then 3).
 - `WEB_PUSH_VAPID_PUBLIC_KEY` and `WEB_PUSH_VAPID_PRIVATE_KEY` enable browser push notifications. Generate them once with `npx web-push generate-vapid-keys`, keep the private key server-only, and set both in Vercel. `WEB_PUSH_SUBJECT` is the site's HTTPS URL or a contact `mailto:` address.
 - Existing Firebase accounts are matched to Clerk accounts only when Clerk confirms the same email address is verified. Existing profile IDs and associated content are kept. Firebase passwords cannot be transferred; users will authenticate through the sign-in methods enabled in Clerk.
@@ -62,6 +63,8 @@ Notes:
 ### Cloudflare Workers deployment
 
 This Next.js 15 app uses the OpenNext Cloudflare adapter pinned to a compatible release. Do not use `npx wrangler deploy` by itself: OpenNext must first produce the Cloudflare Worker bundle.
+
+Feed, notification, trend, profile, and sidebar updates use a Cloudflare Durable Object WebSocket. The browser performs an initial fetch and refreshes affected views when the Worker broadcasts after a successful API write; it does not poll on a timer. The Durable Object binding and initial SQLite migration are declared in `wrangler.jsonc`.
 
 Connect the repository in Cloudflare Workers Builds and use:
 

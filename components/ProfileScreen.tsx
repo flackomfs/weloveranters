@@ -7,6 +7,7 @@ import { ArrowLeft, Ban, ExternalLink, LockKeyhole, Pencil, Save, UnlockKeyhole,
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { PostCard, type FeedPost } from '@/components/PostCard';
+import { useRealtime } from '@/components/RealtimeProvider';
 
 type SocialLinks = {
   website?: string;
@@ -184,13 +185,11 @@ export function ProfileScreen({ username }: { username?: string }) {
 
   const hasProfile = Boolean(profile);
 
-  useEffect(() => {
-    if (!hasProfile) return;
-    const intervalId = window.setInterval(() => {
-      if (!isEditingRef.current) void loadProfile();
-    }, 3000);
-    return () => window.clearInterval(intervalId);
+  const refreshOnRealtime = useCallback(() => {
+    if (hasProfile && !isEditingRef.current) void loadProfile();
   }, [hasProfile, loadProfile]);
+
+  useRealtime(refreshOnRealtime);
 
   function updateSocialLink(key: keyof SocialLinks, value: string) {
     setForm((current) => ({

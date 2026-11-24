@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { WelcomeConfetti } from '@/components/WelcomeConfetti';
+import { RealtimeProvider } from '@/components/RealtimeProvider';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -24,8 +25,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ClerkProvider>
           <ThemeProvider>
-            {children}
-            <WelcomeConfetti />
+            <RealtimeProvider>
+              {children}
+              <WelcomeConfetti />
+            </RealtimeProvider>
           </ThemeProvider>
         </ClerkProvider>
       </body>

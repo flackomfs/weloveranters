@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { PostCard, type FeedPost } from '@/components/PostCard';
 import { PostComposer } from '@/components/PostComposer';
 import { InterestOnboarding } from '@/components/InterestOnboarding';
+import { useRealtime } from '@/components/RealtimeProvider';
 
 export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
   const [posts, setPosts] = useState<FeedPost[]>([]);
@@ -32,10 +33,10 @@ export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
     }
   }, [sort]);
 
+  useRealtime(loadPosts);
+
   useEffect(() => {
     void loadPosts();
-    const intervalId = window.setInterval(() => void loadPosts(), 3000);
-    return () => window.clearInterval(intervalId);
   }, [loadPosts]);
 
   const normalizedQuery = query.trim().toLowerCase();

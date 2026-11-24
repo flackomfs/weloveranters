@@ -1,7 +1,8 @@
 'use client';
 
 import { Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useRealtime } from '@/components/RealtimeProvider';
 
 type Trend = {
   topic: string;
@@ -13,33 +14,25 @@ export function TrendingNow() {
   const [isAvailable, setIsAvailable] = useState(true);
   const [hasError, setHasError] = useState(false);
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadTrends = useCallback(async () => {
+    try {
+      const response = await fetch('/api/trends', { cache: 'no-store' });
+      if (!response.ok) throw new Error('Unable to load trends.');
 
-    async function loadTrends() {
-      try {
-        const response = await fetch('/api/trends', { cache: 'no-store' });
-        if (!response.ok) throw new Error('Unable to load trends.');
-
-        const data = await response.json();
-        if (!isMounted) return;
-
-        setTrends(data.trends);
-        setIsAvailable(data.available);
-        setHasError(false);
-      } catch {
-        if (isMounted) setHasError(true);
-      }
+      const data = await response.json();
+      setTrends(data.trends);
+      setIsAvailable(data.available);
+      setHasError(false);
+    } catch {
+      setHasError(true);
     }
-
-    void loadTrends();
-    const intervalId = window.setInterval(() => void loadTrends(), 3000);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
-    };
   }, []);
+
+  useRealtime(loadTrends);
+
+  useEffect(() => {
+    void loadTrends();
+  }, [loadTrends]);
 
   return (
     <aside className="w-full min-w-0">
