@@ -19,6 +19,8 @@ const promptStarters = [
 export function PostComposer({ onPosted }: { onPosted: () => void }) {
   const { isLoaded, user } = useUser();
   const [content, setContent] = useState('');
+  const [contentWarning, setContentWarning] = useState('');
+  const [customWarning, setCustomWarning] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [profile, setProfile] = useState<ComposerProfile | null>(null);
@@ -28,6 +30,7 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
   const [draftStatus, setDraftStatus] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isLargePost = content.trimStart().startsWith('#');
+  const warningLabel = contentWarning === 'Custom' ? customWarning.trim() : contentWarning;
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -69,6 +72,8 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
     if (!isLoaded) return;
     let active = true;
     setIsDraftReady(false);
+    setContentWarning('');
+    setCustomWarning('');
 
     async function restoreDraft() {
       let localDraft = '';
@@ -90,12 +95,22 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Unable to load your draft.');
         if (data.draft?.content) {
-          if (active) setContent(data.draft.content);
+          if (active) {
+            setContent(data.draft.content);
+            const savedWarning = typeof data.draft.contentWarning === 'string' ? data.draft.contentWarning : '';
+            const presetWarnings = ['Sensitive topic', 'Violence', 'Self-harm', 'Sexual content'];
+            if (presetWarnings.includes(savedWarning)) {
+              setContentWarning(savedWarning);
+            } else if (savedWarning) {
+              setContentWarning('Custom');
+              setCustomWarning(savedWarning);
+            }
+          }
         } else if (localDraft) {
           const saveResponse = await fetch('/api/drafts', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: localDraft })
+            body: JSON.stringify({ content: localDraft, contentWarning: '' })
           });
           const saveData = await saveResponse.json();
           if (!saveResponse.ok) throw new Error(saveData.error || 'Unable to sync your draft.');
@@ -134,7 +149,7 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
           const response = await fetch('/api/drafts', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content })
+            body: JSON.stringify({ content, contentWarning: warningLabel })
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'Unable to save your draft.');
@@ -145,7 +160,7 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
       })();
     }, 600);
     return () => window.clearTimeout(timerId);
-  }, [content, isDraftReady, user]);
+  }, [content, contentWarning, customWarning, isDraftReady, user, warningLabel]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -159,6 +174,10 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
       setMessage('Write something before posting.');
       return;
     }
+    if (contentWarning === 'Custom' && !customWarning.trim()) {
+      setMessage('Add a short content warning or choose another option.');
+      return;
+    }
 
     setIsSubmitting(true);
 
@@ -166,7 +185,7 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
       const response = await fetch('/api/posts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content })
+        body: JSON.stringify({ content, contentWarning: warningLabel })
       });
 
       const data = await response.json();
@@ -176,6 +195,8 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
       }
 
       setContent('');
+      setContentWarning('');
+      setCustomWarning('');
       setMessage(data.message || 'Your rant is live.');
       try {
         window.localStorage.removeItem('weloveranters-post-draft');
@@ -253,6 +274,36 @@ export function PostComposer({ onPosted }: { onPosted: () => void }) {
         disabled={!isLoaded}
         className="w-full resize-none rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-800 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:cursor-not-allowed disabled:bg-slate-100 sm:p-3"
       />
+
+      {user ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label htmlFor="post-content-warning" className="text-xs font-medium text-slate-600">Content warning</label>
+          <select
+            id="post-content-warning"
+            value={contentWarning}
+            onChange={(event) => setContentWarning(event.target.value)}
+            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500"
+          >
+            <option value="">None</option>
+            <option value="Sensitive topic">Sensitive topic</option>
+            <option value="Violence">Violence</option>
+            <option value="Self-harm">Self-harm</option>
+            <option value="Sexual content">Sexual content</option>
+            <option value="Custom">Custom</option>
+          </select>
+          {contentWarning === 'Custom' ? (
+            <input
+              value={customWarning}
+              onChange={(event) => setCustomWarning(event.target.value)}
+              maxLength={80}
+              aria-label="Custom content warning"
+              placeholder="Describe the warning"
+              className="min-w-40 flex-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500"
+            />
+          ) : null}
+          <span className="text-[10px] text-slate-500">Readers can choose whether to reveal the post.</span>
+        </div>
+      ) : null}
 
       {isLargePost ? (
         <div aria-label="Post preview" className="mt-2 rounded-xl border border-violet-200 bg-white p-2.5">

@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useAuth } from '@clerk/nextjs';
-import { Flag, Heart, MessageCircle, Pencil, Repeat2, Send, Trash2 } from 'lucide-react';
+import { Bookmark, Eye, Flag, Heart, MessageCircle, Pin, Pencil, Repeat2, Send, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { RichText } from '@/components/RichText';
 
@@ -11,6 +11,7 @@ export type FeedPost = {
   id: string;
   entryId: string;
   content: string;
+  contentWarning: string | null;
   createdAt: string;
   updatedAt: string | null;
   likes: number;
@@ -26,9 +27,19 @@ export type FeedPost = {
   isBot: boolean;
   verificationBadge: 'man' | 'woman' | 'moderator' | null;
   isReposted: boolean;
+  isBookmarked: boolean;
+  bookmarkCollectionId: string | null;
+  canBookmark: boolean;
+  isPinned: boolean;
+  canPin: boolean;
   canDelete: boolean;
   canEdit: boolean;
   canReport: boolean;
+};
+
+export type SavedCollectionOption = {
+  id: string;
+  name: string;
 };
 
 type PostComment = {
@@ -41,12 +52,26 @@ type PostComment = {
   avatarUrl: string | null;
 };
 
-export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () => void }) {
+export function PostCard({
+  post,
+  onChanged,
+  bookmarkCollections
+}: {
+  post: FeedPost;
+  onChanged: () => void;
+  bookmarkCollections?: SavedCollectionOption[];
+}) {
   const { isLoaded, isSignedIn } = useAuth();
   const [likes, setLikes] = useState(post.likes);
   const [commentCount, setCommentCount] = useState(post.comments);
   const [reposts, setReposts] = useState(post.reposts);
   const [isReposted, setIsReposted] = useState(post.isReposted);
+  const [isBookmarked, setIsBookmarked] = useState(post.isBookmarked);
+  const [bookmarkCollectionId, setBookmarkCollectionId] = useState(post.bookmarkCollectionId);
+  const [isBookmarkSaving, setIsBookmarkSaving] = useState(false);
+  const [isPinned, setIsPinned] = useState(post.isPinned);
+  const [isPinSaving, setIsPinSaving] = useState(false);
+  const [isContentRevealed, setIsContentRevealed] = useState(false);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   const [comments, setComments] = useState<PostComment[]>([]);
   const [isCommentsLoading, setIsCommentsLoading] = useState(false);
@@ -56,6 +81,7 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
   const [commentText, setCommentText] = useState('');
   const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(null);
   const [editedContent, setEditedContent] = useState(post.content);
+  const [editedContentWarning, setEditedContentWarning] = useState(post.contentWarning || '');
   const [isEditing, setIsEditing] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isReporting, setIsReporting] = useState(false);
@@ -73,7 +99,15 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
     setCommentCount(post.comments);
     setReposts(post.reposts);
     setIsReposted(post.isReposted);
-  }, [post.comments, post.isReposted, post.likes, post.reposts]);
+    setIsBookmarked(post.isBookmarked);
+    setBookmarkCollectionId(post.bookmarkCollectionId);
+    setIsPinned(post.isPinned);
+  }, [post.bookmarkCollectionId, post.comments, post.isBookmarked, post.isPinned, post.isReposted, post.likes, post.reposts]);
+
+  useEffect(() => {
+    setIsContentRevealed(false);
+    setEditedContentWarning(post.contentWarning || '');
+  }, [post.contentWarning]);
 
   async function getAuthHeaders() {
     if (!isLoaded || !isSignedIn) throw new Error('Sign in to interact with rants.');
@@ -169,6 +203,70 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
     }
   }
 
+  async function handleBookmark() {
+    if (isBookmarkSaving) return;
+    setIsBookmarkSaving(true);
+    setError('');
+    try {
+      const response = await fetch('/api/bookmarks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: isBookmarked ? 'remove' : 'save', postId: post.id })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to update saved posts.');
+      setIsBookmarked(Boolean(data.saved));
+      setBookmarkCollectionId(data.collectionId || null);
+      onChanged();
+    } catch (bookmarkError) {
+      setError(bookmarkError instanceof Error ? bookmarkError.message : 'Unable to update saved posts.');
+    } finally {
+      setIsBookmarkSaving(false);
+    }
+  }
+
+  async function handleMoveBookmark(collectionId: string) {
+    if (isBookmarkSaving || !collectionId) return;
+    setIsBookmarkSaving(true);
+    setError('');
+    try {
+      const response = await fetch('/api/bookmarks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'move', postId: post.id, collectionId })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to move saved post.');
+      setBookmarkCollectionId(String(data.collectionId));
+      onChanged();
+    } catch (bookmarkError) {
+      setError(bookmarkError instanceof Error ? bookmarkError.message : 'Unable to move saved post.');
+    } finally {
+      setIsBookmarkSaving(false);
+    }
+  }
+
+  async function handlePin() {
+    if (isPinSaving) return;
+    setIsPinSaving(true);
+    setError('');
+    try {
+      const response = await fetch('/api/profile/pins', {
+        method: isPinned ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId: post.id })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Unable to ${isPinned ? 'unpin' : 'pin'} post.`);
+      setIsPinned(Boolean(data.pinned));
+      onChanged();
+    } catch (pinError) {
+      setError(pinError instanceof Error ? pinError.message : 'Unable to update pinned posts.');
+    } finally {
+      setIsPinSaving(false);
+    }
+  }
+
   async function handleDelete() {
     if (!window.confirm('Delete this rant and its comments/reposts?')) return;
     setIsDeleting(true);
@@ -198,7 +296,7 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
       const response = await fetch(`/api/posts/${encodeURIComponent(post.id)}`, {
         method: 'PATCH',
         headers: { ...(await getAuthHeaders()), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content })
+        body: JSON.stringify({ content, contentWarning: editedContentWarning })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to edit rant.');
@@ -243,6 +341,11 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
 
   return (
     <article id={`post-${post.id}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 sm:rounded-3xl sm:p-4">
+      {isPinned ? (
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-violet-700">
+          <Pin className="h-3.5 w-3.5" /> Pinned to profile
+        </p>
+      ) : null}
       {post.repostedByName ? (
         <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-500">
           <Repeat2 className="h-3.5 w-3.5" />
@@ -301,13 +404,39 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
                 aria-label="Edit rant"
                 className="w-full resize-y rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-800 outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500"
               />
+              <input
+                value={editedContentWarning}
+                maxLength={80}
+                onChange={(event) => setEditedContentWarning(event.target.value)}
+                aria-label="Content warning"
+                placeholder="Content warning (optional)"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500"
+              />
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => { setIsEditing(false); setEditedContent(post.content); }} className="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-600">Cancel</button>
+                <button type="button" onClick={() => { setIsEditing(false); setEditedContent(post.content); setEditedContentWarning(post.contentWarning || ''); }} className="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-600">Cancel</button>
                 <button type="submit" disabled={isSavingEdit || !editedContent.trim()} className="rounded-full bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{isSavingEdit ? 'Saving...' : 'Save edit'}</button>
               </div>
             </form>
           ) : (
-            <p className={`mt-1.5 whitespace-pre-line text-slate-700 sm:mt-2.5 ${isLargePost ? 'text-base leading-6 sm:leading-7' : 'text-sm leading-5 sm:text-[14px] sm:leading-6'}`}><RichText text={post.content} /></p>
+            <>
+              {post.contentWarning ? (
+                <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-xs font-semibold text-amber-900">Content warning: {post.contentWarning}</p>
+                  {isContentRevealed ? (
+                    <button type="button" onClick={() => setIsContentRevealed(false)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-800 hover:underline">
+                      <Eye className="h-3.5 w-3.5" /> Hide post
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => setIsContentRevealed(true)} className="mt-2 rounded-full bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-800">
+                      Reveal post
+                    </button>
+                  )}
+                </div>
+              ) : null}
+              {(!post.contentWarning || isContentRevealed) ? (
+                <p className={`mt-1.5 whitespace-pre-line text-slate-700 sm:mt-2.5 ${isLargePost ? 'text-base leading-6 sm:leading-7' : 'text-sm leading-5 sm:text-[14px] sm:leading-6'}`}><RichText text={post.content} /></p>
+              ) : null}
+            </>
           )}
 
           <div className="mt-2.5 flex flex-wrap items-center gap-4 text-xs text-slate-500 sm:mt-3 sm:gap-5 sm:text-sm">
@@ -320,8 +449,33 @@ export function PostCard({ post, onChanged }: { post: FeedPost; onChanged: () =>
             <button type="button" onClick={() => void handleRepost()} disabled={isReposted || isReposting} className="inline-flex items-center gap-1.5 hover:text-emerald-700 disabled:cursor-default disabled:text-emerald-700">
               <Repeat2 className="h-4 w-4" /> {isReposted ? 'Reposted' : 'Repost'} · {reposts}
             </button>
+            {post.canBookmark ? (
+              <button type="button" onClick={() => void handleBookmark()} disabled={isBookmarkSaving} aria-pressed={isBookmarked} className="inline-flex items-center gap-1.5 hover:text-violet-700 disabled:opacity-60">
+                <Bookmark className={`h-4 w-4 ${isBookmarked ? 'fill-current text-violet-700' : ''}`} /> {isBookmarkSaving ? 'Saving...' : isBookmarked ? 'Saved' : 'Save'}
+              </button>
+            ) : null}
+            {post.canPin ? (
+              <button type="button" onClick={() => void handlePin()} disabled={isPinSaving} aria-pressed={isPinned} className="inline-flex items-center gap-1.5 hover:text-violet-700 disabled:opacity-60">
+                <Pin className="h-4 w-4" /> {isPinSaving ? 'Updating...' : isPinned ? 'Unpin' : 'Pin to profile'}
+              </button>
+            ) : null}
+            {isBookmarked && bookmarkCollections && bookmarkCollections.length > 1 ? (
+              <label className="sr-only" htmlFor={`bookmark-collection-${post.entryId}`}>Move saved post to collection</label>
+            ) : null}
+            {isBookmarked && bookmarkCollections && bookmarkCollections.length > 1 ? (
+              <select
+                id={`bookmark-collection-${post.entryId}`}
+                value={bookmarkCollectionId || ''}
+                onChange={(event) => void handleMoveBookmark(event.target.value)}
+                disabled={isBookmarkSaving}
+                aria-label="Move saved post to collection"
+                className="max-w-36 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600"
+              >
+                {bookmarkCollections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}
+              </select>
+            ) : null}
             {post.canEdit && !isEditing ? (
-              <button type="button" onClick={() => { setEditedContent(post.content); setIsEditing(true); }} className="inline-flex items-center gap-1.5 hover:text-violet-700">
+              <button type="button" onClick={() => { setEditedContent(post.content); setEditedContentWarning(post.contentWarning || ''); setIsEditing(true); }} className="inline-flex items-center gap-1.5 hover:text-violet-700">
                 <Pencil className="h-4 w-4" /> Edit
               </button>
             ) : null}

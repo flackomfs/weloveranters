@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/auth';
+import { getAppUserClient, getAuthenticatedUser } from '@/lib/auth';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
 const categories = ['follows', 'posts', 'reactions', 'comments', 'reposts', 'mentions'] as const;
@@ -11,7 +11,8 @@ export async function GET(request: Request) {
     await initTursoSchema();
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to load notification settings.' }, { status: 401 });
-    const result = await tursoClient.execute({
+    const client = getAppUserClient(user);
+    const result = await client.execute({
       sql: 'SELECT type, enabled FROM notification_preferences WHERE user_id = ?',
       args: [user.uid]
     });
@@ -31,6 +32,7 @@ export async function PUT(request: Request) {
     await initTursoSchema();
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to update notification settings.' }, { status: 401 });
+    const client = getAppUserClient(user);
     const body = await request.json();
     if (!body?.preferences || typeof body.preferences !== 'object' || Array.isArray(body.preferences)) {
       return NextResponse.json({ error: 'Provide notification preferences.' }, { status: 400 });
@@ -41,7 +43,7 @@ export async function PUT(request: Request) {
         ON CONFLICT(user_id, type) DO UPDATE SET enabled = excluded.enabled`,
       args: [user.uid, category, body.preferences[category] === false ? 0 : 1]
     }));
-    await tursoClient.batch(statements, 'write');
+    await client.batch(statements, 'write');
     return NextResponse.json({
       preferences: Object.fromEntries(categories.map((category) => [category, body.preferences[category] !== false]))
     });

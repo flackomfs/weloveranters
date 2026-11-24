@@ -4,6 +4,7 @@ import { useUser } from '@clerk/nextjs';
 import { useCallback, useEffect, useState } from 'react';
 import { PostCard, type FeedPost } from '@/components/PostCard';
 import { PostComposer } from '@/components/PostComposer';
+import { InterestOnboarding } from '@/components/InterestOnboarding';
 
 export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
   const [posts, setPosts] = useState<FeedPost[]>([]);
@@ -76,6 +77,9 @@ export function Feed({ isExplore = false }: { isExplore?: boolean } = {}) {
         ))}
       </nav>
 
+      <div className="mt-3">
+        <InterestOnboarding />
+      </div>
       <PostComposer onPosted={loadPosts} />
 
       <div className="mt-2 space-y-2 sm:mt-4 sm:space-y-3">

@@ -1,20 +1,218 @@
 import { createClient } from '@libsql/client/http';
+import type { Client } from '@libsql/client';
 
-const databaseUrl = process.env.TURSO_DATABASE_URL;
-const authToken = process.env.TURSO_AUTH_TOKEN;
+export type TursoShardId = 1 | 2 | 3;
 
-export const tursoClient = databaseUrl && authToken ? createClient({ url: databaseUrl, authToken }) : null;
+export type TursoShard = {
+  id: TursoShardId;
+  client: Client;
+};
+
+const shardConfigs: Array<{
+  id: TursoShardId;
+  url: string | undefined;
+  authToken: string | undefined;
+  maxBytes: string | undefined;
+}> = [
+  {
+    id: 1,
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+    maxBytes: process.env.TURSO_DATABASE_MAX_BYTES
+  },
+  {
+    id: 2,
+    url: process.env.TURSO_DATABASE_2_URL,
+    authToken: process.env.TURSO_DATABASE_2_AUTH_TOKEN,
+    maxBytes: process.env.TURSO_DATABASE_2_MAX_BYTES
+  },
+  {
+    id: 3,
+    url: process.env.TURSO_DATABASE_3_URL,
+    authToken: process.env.TURSO_DATABASE_3_AUTH_TOKEN,
+    maxBytes: process.env.TURSO_DATABASE_3_MAX_BYTES
+  }
+];
+
+const shardClients = shardConfigs.map(({ url, authToken }) =>
+  url && authToken ? createClient({ url, authToken }) : null
+);
+
+export const tursoClient = shardClients[0];
 export const isTursoConfigured = Boolean(tursoClient);
 
-let schemaPromise: Promise<void> | null = null;
+const schemaPromises = new WeakMap<Client, Promise<void>>();
 
-export async function initTursoSchema() {
-  if (!tursoClient) {
-    return null;
+export function getConfiguredTursoShards(): TursoShard[] {
+  for (const config of shardConfigs) {
+    if (Boolean(config.url) !== Boolean(config.authToken)) {
+      throw new Error(`Turso database ${config.id} requires both its URL and auth token.`);
+    }
   }
 
+  const configured: TursoShard[] = [];
+  let foundMissingDatabase = false;
+  shardConfigs.forEach((config, index) => {
+    const client = shardClients[index];
+    if (!client) {
+      foundMissingDatabase = true;
+      return;
+    }
+    if (foundMissingDatabase) {
+      throw new Error(`Configure Turso databases in order; database ${config.id} cannot skip a shard.`);
+    }
+    configured.push({ id: config.id, client });
+  });
+
+  return configured;
+}
+
+export function getTursoClient(shardId: TursoShardId): Client | null {
+  return shardClients[shardId - 1];
+}
+
+export async function findUserShards(userIds: readonly string[]): Promise<Map<string, TursoShard>> {
+  const ids = Array.from(new Set(userIds.filter(Boolean)));
+  if (!ids.length) return new Map();
+  const shards = getConfiguredTursoShards();
+  await Promise.all(shards.map((shard) => initTursoSchema(shard.client)));
+
+  const mapped = new Map<string, TursoShard>();
+  for (let offset = 0; offset < ids.length; offset += 500) {
+    const batch = ids.slice(offset, offset + 500);
+    const directory = await tursoClient?.execute({
+      sql: `SELECT user_id, shard_id FROM account_shards
+        WHERE user_id IN (${batch.map(() => '?').join(', ')})`,
+      args: batch
+    });
+    for (const row of directory?.rows || []) {
+      const shard = shards.find((candidate) => candidate.id === Number(row.shard_id));
+      if (shard) mapped.set(String(row.user_id), shard);
+    }
+  }
+
+  let unresolvedIds = ids.filter((id) => !mapped.has(id));
+  for (const shard of shards) {
+    for (let offset = 0; offset < unresolvedIds.length; offset += 500) {
+      const batch = unresolvedIds.slice(offset, offset + 500);
+      const result = await shard.client.execute({
+        sql: `SELECT id FROM users WHERE id IN (${batch.map(() => '?').join(', ')})`,
+        args: batch
+      });
+      for (const row of result.rows) mapped.set(String(row.id), shard);
+    }
+    unresolvedIds = unresolvedIds.filter((id) => !mapped.has(id));
+    if (!unresolvedIds.length) break;
+  }
+  return mapped;
+}
+
+export async function findUserShard(userId: string): Promise<TursoShard | null> {
+  const shards = await findUserShards([userId]);
+  return shards.get(userId) || null;
+}
+
+export async function findPostShard(postId: string): Promise<TursoShard | null> {
+  const shards = await findPostShards([postId]);
+  return shards.get(postId) || null;
+}
+
+export async function findPostShards(postIds: readonly string[]): Promise<Map<string, TursoShard>> {
+  const ids = Array.from(new Set(postIds.filter(Boolean)));
+  if (!ids.length) return new Map();
+  const shards = getConfiguredTursoShards();
+  await Promise.all(shards.map((shard) => initTursoSchema(shard.client)));
+  const mapped = new Map<string, TursoShard>();
+  for (const shard of shards) {
+    let unresolvedIds = ids.filter((id) => !mapped.has(id));
+    for (let offset = 0; offset < unresolvedIds.length; offset += 500) {
+      const batch = unresolvedIds.slice(offset, offset + 500);
+      const result = await shard.client.execute({
+        sql: `SELECT id FROM posts WHERE id IN (${batch.map(() => '?').join(', ')})`,
+        args: batch
+      });
+      for (const row of result.rows) mapped.set(String(row.id), shard);
+    }
+    if (mapped.size === ids.length) break;
+  }
+  return mapped;
+}
+
+export async function updateAccountShardIdentity(userId: string, username: string, displayName: string) {
+  if (!tursoClient) throw new Error('User storage is unavailable.');
+  await initTursoSchema();
+  const result = await tursoClient.execute({
+    sql: `UPDATE account_shards SET username_key = ?, display_name_key = ?
+      WHERE user_id = ?`,
+    args: [
+      username.trim().toLowerCase() || null,
+      displayName.normalize('NFKC').trim().toLowerCase() || null,
+      userId
+    ]
+  });
+  if (!result.rowsAffected) throw new Error('Unable to update the account directory.');
+}
+
+export async function getShardForNewAccount(): Promise<TursoShard> {
+  const shards = getConfiguredTursoShards();
+  if (!shards.length) throw new Error('Turso storage is unavailable.');
+
+  for (const shard of shards) {
+    const config = shardConfigs[shard.id - 1];
+    const maxBytes = Number(config.maxBytes);
+    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+      throw new Error(`Set TURSO_DATABASE${shard.id === 1 ? '' : `_${shard.id}`}_MAX_BYTES to a positive byte limit.`);
+    }
+
+    const [pageCountResult, pageSizeResult] = await Promise.all([
+      shard.client.execute('PRAGMA page_count'),
+      shard.client.execute('PRAGMA page_size')
+    ]);
+    const pageCount = Number(pageCountResult.rows[0]?.page_count);
+    const pageSize = Number(pageSizeResult.rows[0]?.page_size);
+    if (!Number.isSafeInteger(pageCount) || pageCount < 0 || !Number.isSafeInteger(pageSize) || pageSize <= 0) {
+      throw new Error(`Unable to measure Turso database ${shard.id} usage.`);
+    }
+
+    const usedBytes = pageCount * pageSize;
+    if (!Number.isSafeInteger(usedBytes)) {
+      throw new Error(`Turso database ${shard.id} usage is outside the supported measurement range.`);
+    }
+    if (usedBytes < maxBytes * 0.95) return shard;
+  }
+
+  throw new Error('All configured Turso databases have reached 95% of their configured capacity.');
+}
+
+export async function initTursoSchema(client: Client | null = tursoClient) {
+  if (!client) return null;
+
+  let schemaPromise = schemaPromises.get(client);
   if (!schemaPromise) {
+    const tursoClient = client;
     schemaPromise = (async () => {
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS account_shards (
+          user_id TEXT PRIMARY KEY,
+          clerk_user_id TEXT NOT NULL UNIQUE,
+          email_key TEXT UNIQUE,
+          username_key TEXT UNIQUE,
+          display_name_key TEXT UNIQUE,
+          shard_id INTEGER NOT NULL CHECK (shard_id IN (1, 2, 3)),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      const directoryColumns = await tursoClient.execute('PRAGMA table_info(account_shards)');
+      const existingDirectoryColumns = new Set(directoryColumns.rows.map((row) => String(row.name)));
+      if (!existingDirectoryColumns.has('username_key')) {
+        await tursoClient.execute('ALTER TABLE account_shards ADD COLUMN username_key TEXT');
+      }
+      if (!existingDirectoryColumns.has('display_name_key')) {
+        await tursoClient.execute('ALTER TABLE account_shards ADD COLUMN display_name_key TEXT');
+      }
+      await tursoClient.execute('CREATE UNIQUE INDEX IF NOT EXISTS account_shards_username_key_unique ON account_shards (username_key) WHERE username_key IS NOT NULL;');
+      await tursoClient.execute('CREATE UNIQUE INDEX IF NOT EXISTS account_shards_display_name_key_unique ON account_shards (display_name_key) WHERE display_name_key IS NOT NULL;');
+
       await tursoClient.execute(`
         CREATE TABLE IF NOT EXISTS users (
           id TEXT PRIMARY KEY,
@@ -197,6 +395,44 @@ export async function initTursoSchema() {
       `);
 
       await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS saved_collections (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          UNIQUE(user_id, name)
+        );
+      `);
+
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS bookmarks (
+          user_id TEXT NOT NULL,
+          post_id TEXT NOT NULL,
+          collection_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (user_id, post_id)
+        );
+      `);
+
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS pinned_posts (
+          user_id TEXT NOT NULL,
+          post_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (user_id, post_id)
+        );
+      `);
+
+      await tursoClient.execute(`
+        CREATE TABLE IF NOT EXISTS user_interests (
+          user_id TEXT NOT NULL,
+          interest TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (user_id, interest)
+        );
+      `);
+
+      await tursoClient.execute(`
         CREATE TABLE IF NOT EXISTS notification_preferences (
           user_id TEXT NOT NULL,
           type TEXT NOT NULL,
@@ -225,6 +461,13 @@ export async function initTursoSchema() {
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_hashtags_created_at_idx ON post_hashtags (created_at);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_comments_post_created_idx ON post_comments (post_id, created_at);');
       await tursoClient.execute('CREATE INDEX IF NOT EXISTS post_reposts_post_created_idx ON post_reposts (post_id, created_at);');
+      await tursoClient.execute('CREATE INDEX IF NOT EXISTS bookmarks_user_collection_created_idx ON bookmarks (user_id, collection_id, created_at);');
+      await tursoClient.execute('CREATE INDEX IF NOT EXISTS pinned_posts_user_created_idx ON pinned_posts (user_id, created_at);');
+      await tursoClient.execute('CREATE INDEX IF NOT EXISTS user_interests_interest_idx ON user_interests (interest, user_id);');
+      await tursoClient.execute(`
+        CREATE UNIQUE INDEX IF NOT EXISTS saved_collections_user_name_ci_unique
+        ON saved_collections (user_id, lower(trim(name)))
+      `);
 
       const userColumns = await tursoClient.execute('PRAGMA table_info(users)');
       const existingColumns = new Set(userColumns.rows.map((row) => String(row.name)));
@@ -291,18 +534,27 @@ export async function initTursoSchema() {
       if (!postColumns.rows.some((row) => String(row.name) === 'updated_at')) {
         await tursoClient.execute('ALTER TABLE posts ADD COLUMN updated_at TEXT');
       }
+      if (!postColumns.rows.some((row) => String(row.name) === 'content_warning')) {
+        await tursoClient.execute('ALTER TABLE posts ADD COLUMN content_warning TEXT');
+      }
 
       const commentColumns = await tursoClient.execute('PRAGMA table_info(post_comments)');
       if (!commentColumns.rows.some((row) => String(row.name) === 'parent_comment_id')) {
         await tursoClient.execute('ALTER TABLE post_comments ADD COLUMN parent_comment_id TEXT');
       }
+
+      const draftColumns = await tursoClient.execute('PRAGMA table_info(post_drafts)');
+      if (!draftColumns.rows.some((row) => String(row.name) === 'content_warning')) {
+        await tursoClient.execute('ALTER TABLE post_drafts ADD COLUMN content_warning TEXT');
+      }
     })().catch((error) => {
-      schemaPromise = null;
+      schemaPromises.delete(client);
       throw error;
     });
+    schemaPromises.set(client, schemaPromise);
   }
 
   await schemaPromise;
 
-  return tursoClient;
+  return client;
 }

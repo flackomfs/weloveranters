@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/auth';
+import { getAppUserClient, getAuthenticatedUser } from '@/lib/auth';
 import { getWebPushConfig, isAllowedPushEndpoint } from '@/lib/web-push';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 
@@ -12,10 +12,11 @@ export async function GET(request: Request) {
     await initTursoSchema();
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to manage device notifications.' }, { status: 401 });
+    const client = getAppUserClient(user);
 
     const endpoint = new URL(request.url).searchParams.get('endpoint') || '';
     const registered = endpoint
-      ? await tursoClient.execute({
+      ? await client.execute({
           sql: 'SELECT 1 FROM web_push_subscriptions WHERE user_id = ? AND endpoint = ?',
           args: [user.uid, endpoint]
         })
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
     await initTursoSchema();
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to enable device notifications.' }, { status: 401 });
+    const client = getAppUserClient(user);
 
     const body = await request.json();
     const endpoint = typeof body?.endpoint === 'string' ? body.endpoint : '';
@@ -60,7 +62,7 @@ export async function POST(request: Request) {
     }
 
     const now = new Date().toISOString();
-    await tursoClient.execute({
+    await client.execute({
       sql: `INSERT INTO web_push_subscriptions (user_id, endpoint, p256dh, auth, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(endpoint) DO UPDATE SET
@@ -84,13 +86,14 @@ export async function DELETE(request: Request) {
     await initTursoSchema();
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to disable device notifications.' }, { status: 401 });
+    const client = getAppUserClient(user);
 
     const body = await request.json();
     const endpoint = typeof body?.endpoint === 'string' ? body.endpoint : '';
     if (endpoint.length > 4096 || !isAllowedPushEndpoint(endpoint)) {
       return NextResponse.json({ error: 'Provide a valid device push subscription.' }, { status: 400 });
     }
-    await tursoClient.execute({
+    await client.execute({
       sql: 'DELETE FROM web_push_subscriptions WHERE user_id = ? AND endpoint = ?',
       args: [user.uid, endpoint]
     });

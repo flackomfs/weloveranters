@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { initTursoSchema, tursoClient } from '@/lib/turso';
+import { getConfiguredTursoShards, initTursoSchema, tursoClient } from '@/lib/turso';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,22 +11,27 @@ export async function GET() {
   }
 
   try {
-    await initTursoSchema();
-    const result = await tursoClient.execute(`
+    const shards = getConfiguredTursoShards();
+    await Promise.all(shards.map((shard) => initTursoSchema(shard.client)));
+    const results = await Promise.all(shards.map((shard) => shard.client.execute(`
       SELECT h.hashtag AS topic, COUNT(*) AS posts
       FROM post_hashtags h
       INNER JOIN posts p ON p.id = h.post_id
       INNER JOIN users u ON u.id = p.user_id
       WHERE COALESCE(u.private_profile, 0) = 0
       GROUP BY h.hashtag
-      ORDER BY posts DESC, h.hashtag ASC
-      LIMIT 10
-    `);
+    `)));
+    const totals = new Map<string, number>();
+    for (const result of results) {
+      for (const row of result.rows) {
+        const topic = String(row.topic);
+        totals.set(topic, (totals.get(topic) || 0) + Number(row.posts));
+      }
+    }
 
-    const trends = result.rows.map((row) => ({
-      topic: String(row.topic),
-      posts: Number(row.posts)
-    }));
+    const trends = Array.from(totals, ([topic, posts]) => ({ topic, posts }))
+      .sort((left, right) => right.posts - left.posts || left.topic.localeCompare(right.topic))
+      .slice(0, 10);
 
     return NextResponse.json({ trends, available: true }, {
       headers: { 'Cache-Control': 'no-store' }

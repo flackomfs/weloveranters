@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { isAdminUid } from '@/lib/admin';
-import { initTursoSchema, tursoClient } from '@/lib/turso';
+import { findUserShard, initTursoSchema, tursoClient } from '@/lib/turso';
 
 export async function PUT(request: Request) {
   if (!tursoClient) return NextResponse.json({ error: 'Profile storage is unavailable.' }, { status: 503 });
@@ -30,10 +30,12 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Choose a profile and enter at least one count.' }, { status: 400 });
     }
 
-    const target = await tursoClient.execute({ sql: 'SELECT id FROM users WHERE id = ?', args: [targetId] });
+    const targetShard = await findUserShard(targetId);
+    if (!targetShard) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
+    const target = await targetShard.client.execute({ sql: 'SELECT id FROM users WHERE id = ?', args: [targetId] });
     if (!target.rows[0]) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
 
-    await tursoClient.execute({
+    await targetShard.client.execute({
       sql: `UPDATE users SET
           followers_override = CASE WHEN ? = 1 THEN ? ELSE followers_override END,
           following_override = CASE WHEN ? = 1 THEN ? ELSE following_override END

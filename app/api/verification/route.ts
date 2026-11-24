@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isAdminUid } from '@/lib/admin';
-import { getAuthenticatedUser } from '@/lib/auth';
-import { initTursoSchema, tursoClient } from '@/lib/turso';
+import { getAppUserClient, getAuthenticatedUser } from '@/lib/auth';
+import { findUserShard, getConfiguredTursoShards, initTursoSchema, tursoClient } from '@/lib/turso';
 
 type Badge = 'man' | 'woman';
 type RequestStatus = 'pending' | 'approved' | 'rejected';
@@ -13,15 +13,17 @@ export async function GET(request: Request) {
     await initTursoSchema();
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to manage verification requests.' }, { status: 401 });
+    const userClient = getAppUserClient(user);
+    const shards = getConfiguredTursoShards();
 
     const [requestResult, pendingResult, approvedResult] = await Promise.all([
-      tursoClient.execute({
+      userClient.execute({
         sql: `SELECT requested_badge AS requestedBadge, status, created_at AS createdAt
           FROM user_verification_requests WHERE user_id = ?`,
         args: [user.uid]
       }),
       isAdminUid(user.uid)
-        ? tursoClient.execute({
+        ? Promise.all(shards.map((shard) => shard.client.execute({
             sql: `SELECT r.user_id AS userId, r.requested_badge AS requestedBadge,
                 r.created_at AS createdAt, u.display_name AS name, u.username
               FROM user_verification_requests r
@@ -29,10 +31,10 @@ export async function GET(request: Request) {
               WHERE r.status = 'pending'
               ORDER BY r.created_at ASC`,
             args: []
-          })
+          }))).then((results) => ({ rows: results.flatMap((result) => result.rows) }))
         : Promise.resolve(null),
       isAdminUid(user.uid)
-        ? tursoClient.execute({
+        ? Promise.all(shards.map((shard) => shard.client.execute({
             sql: `SELECT r.user_id AS userId, r.requested_badge AS requestedBadge,
                 r.created_at AS createdAt, u.display_name AS name, u.username
               FROM user_verification_requests r
@@ -40,7 +42,7 @@ export async function GET(request: Request) {
               WHERE r.status = 'approved'
               ORDER BY r.reviewed_at DESC, r.created_at ASC`,
             args: []
-          })
+          }))).then((results) => ({ rows: results.flatMap((result) => result.rows) }))
         : Promise.resolve(null)
     ]);
 
@@ -63,6 +65,7 @@ export async function POST(request: Request) {
     await initTursoSchema();
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to request verification.' }, { status: 401 });
+    const userClient = getAppUserClient(user);
 
     const body = await request.json();
     const badge = body?.badge;
@@ -70,7 +73,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Choose a MAN or WOMAN badge request.' }, { status: 400 });
     }
 
-    const existing = await tursoClient.execute({
+    const existing = await userClient.execute({
       sql: 'SELECT status FROM user_verification_requests WHERE user_id = ?',
       args: [user.uid]
     });
@@ -82,7 +85,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Your profile badge is already approved.' }, { status: 409 });
     }
 
-    await tursoClient.execute({
+    await userClient.execute({
       sql: `INSERT INTO user_verification_requests
           (user_id, requested_badge, status, created_at, reviewed_at, reviewed_by)
         VALUES (?, ?, 'pending', ?, NULL, NULL)
@@ -117,9 +120,11 @@ export async function PUT(request: Request) {
     if (!userId || (status !== 'approved' && status !== 'rejected' && status !== 'revoked')) {
       return NextResponse.json({ error: 'Choose a pending request and a valid decision.' }, { status: 400 });
     }
+    const targetShard = await findUserShard(userId);
+    if (!targetShard) return NextResponse.json({ error: 'Verification request not found.' }, { status: 404 });
 
     if (status === 'revoked') {
-      const revokeResult = await tursoClient.execute({
+      const revokeResult = await targetShard.client.execute({
         sql: `UPDATE user_verification_requests
           SET status = 'rejected', reviewed_at = ?, reviewed_by = ?
           WHERE user_id = ? AND status = 'approved'`,
@@ -131,7 +136,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ status: 'revoked' });
     }
 
-    const result = await tursoClient.execute({
+    const result = await targetShard.client.execute({
       sql: `UPDATE user_verification_requests
         SET status = ?, reviewed_at = ?, reviewed_by = ?
         WHERE user_id = ? AND status = 'pending'`,

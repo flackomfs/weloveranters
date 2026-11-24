@@ -4,13 +4,14 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
-import { Bell, Compass, Home, LogIn, Settings, UserRound } from 'lucide-react';
+import { Bell, Bookmark, Compass, Home, LogIn, Settings, UserRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import logo from '@/src/images/logo.png';
 
 const navItems = [
   { label: 'Home', href: '/feed', icon: Home },
   { label: 'Explore', href: '/feed?view=explore', icon: Compass },
+  { label: 'Saved', href: '/bookmarks', icon: Bookmark },
   { label: 'Notifications', href: '/notifications', icon: Bell },
   { label: 'Profile', href: '/profile', icon: UserRound },
   { label: 'Settings', href: '/settings', icon: Settings }
@@ -81,7 +82,7 @@ export function Sidebar({ isExplore = false }: { isExplore?: boolean } = {}) {
                 key={label}
                 href={href}
                 className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition ${
-                  (label === 'Home' && pathname === '/feed' && !isExplore) || (label === 'Profile' && pathname.startsWith('/profile')) || (label === 'Settings' && pathname === '/settings') || (label === 'Explore' && pathname === '/feed' && isExplore)
+                  (label === 'Home' && pathname === '/feed' && !isExplore) || (label === 'Profile' && pathname.startsWith('/profile')) || (label === 'Settings' && pathname === '/settings') || (label === 'Saved' && pathname === '/bookmarks') || (label === 'Explore' && pathname === '/feed' && isExplore)
                     ? 'bg-violet-500/10 text-violet-200 ring-1 ring-violet-400/20'
                     : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
                 }`}
@@ -111,7 +112,7 @@ export function Sidebar({ isExplore = false }: { isExplore?: boolean } = {}) {
       <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-50 border-t border-violet-400/20 bg-slate-950/95 px-1 pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-[0_-8px_25px_rgba(15,23,42,0.6)] xl:hidden">
         <div className="mx-auto flex max-w-lg items-stretch justify-around">
           {navItems.map(({ label, href, icon: Icon }) => {
-            const active = (label === 'Home' && pathname === '/feed' && !isExplore) || (label === 'Profile' && pathname.startsWith('/profile')) || (label === 'Settings' && pathname === '/settings') || (label === 'Explore' && pathname === '/feed' && isExplore);
+            const active = (label === 'Home' && pathname === '/feed' && !isExplore) || (label === 'Profile' && pathname.startsWith('/profile')) || (label === 'Settings' && pathname === '/settings') || (label === 'Saved' && pathname === '/bookmarks') || (label === 'Explore' && pathname === '/feed' && isExplore);
             return (
               <Link key={label} href={href} aria-label={label} title={label} className={`relative flex min-w-0 flex-1 items-center justify-center rounded-lg py-2.5 ${active ? 'text-violet-200' : 'text-slate-400 hover:text-white'}`}>
                 <Icon className="h-5 w-5" />

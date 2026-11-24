@@ -1,6 +1,8 @@
 import 'server-only';
 import type { Client } from '@libsql/client';
 import * as webPush from 'web-push';
+import { findUserShards, getConfiguredTursoShards } from '@/lib/turso';
+import { getNotificationCategory, type NotificationType } from '@/lib/notifications';
 
 type StoredSubscription = {
   endpoint: string;
@@ -13,8 +15,8 @@ type StoredSubscription = {
 type PushNotificationRow = {
   id: string;
   recipientId: string;
+  actorId: string;
   type: string;
-  actorName: string | null;
 };
 
 type SubscriptionRow = StoredSubscription & {
@@ -69,51 +71,92 @@ function getNotificationText(type: string, actorName: string) {
   }
 }
 
-export async function sendPushNotifications(client: Client, notificationIds: string[]) {
+export async function sendPushNotifications(_client: Client, notificationIds: string[]) {
   const ids = Array.from(new Set(notificationIds.filter(Boolean)));
   if (!ids.length) return;
 
   try {
+    const shards = getConfiguredTursoShards();
     let vapidConfigured = false;
     for (let offset = 0; offset < ids.length; offset += 100) {
       const batchIds = ids.slice(offset, offset + 100);
-      const notificationsResult = await client.execute({
-        sql: `SELECT n.id, n.recipient_id AS recipientId, n.type,
-            actor.display_name AS actorName
-          FROM notifications n
-          LEFT JOIN users actor ON actor.id = n.actor_id
-          WHERE n.id IN (${batchIds.map(() => '?').join(', ')})`,
+      const notificationResults = await Promise.all(shards.map((shard) => shard.client.execute({
+        sql: `SELECT id, recipient_id AS recipientId, actor_id AS actorId, type
+          FROM notifications WHERE id IN (${batchIds.map(() => '?').join(', ')})`,
         args: batchIds
-      });
-      const notifications: PushNotificationRow[] = notificationsResult.rows.map((row) => ({
+      })));
+      const notifications: PushNotificationRow[] = notificationResults.flatMap((result) =>
+        result.rows.map((row) => ({
         id: String(row.id),
         recipientId: String(row.recipientId),
-        type: String(row.type),
-        actorName: typeof row.actorName === 'string' ? row.actorName : null
-      }));
+        actorId: String(row.actorId),
+        type: String(row.type)
+      })));
       if (!notifications.length) continue;
 
+      const userIds = Array.from(new Set(notifications.flatMap((notification) => [notification.recipientId, notification.actorId])));
+      const userShards = await findUserShards(userIds);
       const recipientIds = Array.from(new Set(notifications.map((notification) => notification.recipientId)));
-      const subscriptionsResult = await client.execute({
-        sql: `SELECT user_id AS userId, endpoint, p256dh, auth
-          FROM web_push_subscriptions
-          WHERE user_id IN (${recipientIds.map(() => '?').join(', ')})`,
-        args: recipientIds
-      });
-      const subscriptionsByUser = new Map<string, StoredSubscription[]>();
-      for (const resultRow of subscriptionsResult.rows) {
-        const row: SubscriptionRow = {
-          userId: String(resultRow.userId),
-          endpoint: String(resultRow.endpoint),
-          keys: {
-            p256dh: String(resultRow.p256dh),
-            auth: String(resultRow.auth)
-          }
-        };
-        const subscriptions = subscriptionsByUser.get(row.userId) || [];
-        subscriptions.push({ endpoint: row.endpoint, keys: row.keys });
-        subscriptionsByUser.set(row.userId, subscriptions);
+      const recipientShards = new Map<number, { client: Client; userIds: string[] }>();
+      for (const recipientId of recipientIds) {
+        const shard = userShards.get(recipientId);
+        if (!shard) continue;
+        const group = recipientShards.get(shard.id) || { client: shard.client, userIds: [] };
+        group.userIds.push(recipientId);
+        recipientShards.set(shard.id, group);
       }
+
+      const [subscriptionResults, preferenceResults] = await Promise.all([
+        Promise.all(Array.from(recipientShards.values()).map(({ client, userIds: idsForShard }) => client.execute({
+          sql: `SELECT user_id AS userId, endpoint, p256dh, auth
+            FROM web_push_subscriptions WHERE user_id IN (${idsForShard.map(() => '?').join(', ')})`,
+          args: idsForShard
+        }))),
+        Promise.all(Array.from(recipientShards.values()).map(({ client, userIds: idsForShard }) => client.execute({
+          sql: `SELECT user_id AS userId, type, enabled FROM notification_preferences
+            WHERE user_id IN (${idsForShard.map(() => '?').join(', ')})`,
+          args: idsForShard
+        })))
+      ]);
+      const subscriptionsByUser = new Map<string, StoredSubscription[]>();
+      const clientByEndpoint = new Map<string, Client>();
+      for (let index = 0; index < subscriptionResults.length; index += 1) {
+        const client = Array.from(recipientShards.values())[index].client;
+        for (const resultRow of subscriptionResults[index].rows) {
+          const row: SubscriptionRow = {
+            userId: String(resultRow.userId),
+            endpoint: String(resultRow.endpoint),
+            keys: { p256dh: String(resultRow.p256dh), auth: String(resultRow.auth) }
+          };
+          const subscriptions = subscriptionsByUser.get(row.userId) || [];
+          subscriptions.push({ endpoint: row.endpoint, keys: row.keys });
+          subscriptionsByUser.set(row.userId, subscriptions);
+          clientByEndpoint.set(row.endpoint, client);
+        }
+      }
+      const preferences = new Map<string, boolean>();
+      for (const result of preferenceResults) {
+        for (const row of result.rows) {
+          preferences.set(`${String(row.userId)}:${String(row.type)}`, Number(row.enabled) !== 0);
+        }
+      }
+      const actorIdsByShard = new Map<number, { client: Client; ids: string[] }>();
+      for (const notification of notifications) {
+        const shard = userShards.get(notification.actorId);
+        if (!shard) continue;
+        const group = actorIdsByShard.get(shard.id) || { client: shard.client, ids: [] };
+        group.ids.push(notification.actorId);
+        actorIdsByShard.set(shard.id, group);
+      }
+      const actorNames = new Map<string, string>();
+      await Promise.all(Array.from(actorIdsByShard.values()).map(async ({ client, ids: actorIds }) => {
+        const distinctIds = Array.from(new Set(actorIds));
+        const result = await client.execute({
+          sql: `SELECT id, display_name FROM users WHERE id IN (${distinctIds.map(() => '?').join(', ')})`,
+          args: distinctIds
+        });
+        for (const row of result.rows) actorNames.set(String(row.id), String(row.display_name || 'Someone'));
+      }));
 
       if (!Array.from(subscriptionsByUser.values()).some((subscriptions) => subscriptions.length > 0)) continue;
       if (!vapidConfigured) {
@@ -127,7 +170,9 @@ export async function sendPushNotifications(client: Client, notificationIds: str
       }
 
       const deliveries = notifications.flatMap((notification) => {
-        const actorName = notification.actorName || 'Someone';
+        const category = getNotificationCategory(notification.type as NotificationType);
+        if (preferences.get(`${notification.recipientId}:${category}`) === false) return [];
+        const actorName = actorNames.get(notification.actorId) || 'Someone';
         const text = getNotificationText(notification.type, actorName);
         const payload = JSON.stringify({ ...text, url: '/notifications', tag: notification.id });
         return (subscriptionsByUser.get(notification.recipientId) || []).map(async (subscription) => {
@@ -136,7 +181,7 @@ export async function sendPushNotifications(client: Client, notificationIds: str
           } catch (error) {
             const statusCode = getStatusCode(error);
             if (statusCode === 404 || statusCode === 410) {
-              await client.execute({
+              await clientByEndpoint.get(subscription.endpoint)?.execute({
                 sql: 'DELETE FROM web_push_subscriptions WHERE endpoint = ?',
                 args: [subscription.endpoint]
               });

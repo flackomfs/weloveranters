@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/auth';
+import { getAppUserClient, getAuthenticatedUser } from '@/lib/auth';
 import { initTursoSchema, tursoClient } from '@/lib/turso';
 import { DEFAULT_THEME, getThemePalette } from '@/lib/themes';
 
@@ -10,8 +10,9 @@ export async function GET(request: Request) {
     await initTursoSchema();
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to load account settings.' }, { status: 401 });
+    const client = getAppUserClient(user);
 
-    const result = await tursoClient.execute({
+    const result = await client.execute({
       sql: 'SELECT theme_id FROM user_settings WHERE user_id = ?',
       args: [user.uid]
     });
@@ -29,6 +30,7 @@ export async function PUT(request: Request) {
     await initTursoSchema();
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to update account settings.' }, { status: 401 });
+    const client = getAppUserClient(user);
 
     const body = await request.json();
     const theme = getThemePalette(body?.themeId);
@@ -36,7 +38,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Choose a valid theme palette.' }, { status: 400 });
     }
 
-    await tursoClient.execute({
+    await client.execute({
       sql: `INSERT INTO user_settings (user_id, theme_id, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET theme_id = excluded.theme_id, updated_at = CURRENT_TIMESTAMP`,
       args: [user.uid, theme.id]

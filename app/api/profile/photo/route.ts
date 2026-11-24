@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { tursoClient } from '@/lib/turso';
+import { findUserShard, tursoClient } from '@/lib/turso';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,7 +11,9 @@ export async function GET(request: Request) {
   if (!userId || userId.length > 128) return NextResponse.json({ error: 'Photo not found.' }, { status: 404 });
 
   try {
-    const result = await tursoClient.execute({
+    const shard = await findUserShard(userId);
+    if (!shard) return NextResponse.json({ error: 'Photo not found.' }, { status: 404 });
+    const result = await shard.client.execute({
       sql: 'SELECT avatar_url FROM users WHERE id = ?',
       args: [userId]
     });

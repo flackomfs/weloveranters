@@ -1,4 +1,5 @@
 import type { Client } from '@libsql/client';
+import { findUserShards, getConfiguredTursoShards } from '@/lib/turso';
 
 export type NotificationType = 'follow' | 'unfollow' | 'post' | 'like' | 'comment' | 'repost' | 'mention';
 export type NotificationCategory = 'follows' | 'posts' | 'reactions' | 'comments' | 'reposts' | 'mentions';
@@ -22,23 +23,21 @@ const categoryByType: Record<NotificationType, NotificationCategory> = {
   mention: 'mentions'
 };
 
+export function getNotificationCategory(type: NotificationType) {
+  return categoryByType[type];
+}
+
 export function notificationStatement(notification: NotificationInput) {
   return {
     sql: `INSERT INTO notifications (id, recipient_id, actor_id, type, entity_id, created_at)
-      SELECT ?, ?, ?, ?, ?, ?
-      WHERE COALESCE((
-        SELECT enabled FROM notification_preferences
-        WHERE user_id = ? AND type = ?
-      ), 1) = 1`,
+      VALUES (?, ?, ?, ?, ?, ?)`,
     args: [
       notification.id,
       notification.recipientId,
       notification.actorId,
       notification.type,
       notification.entityId,
-      notification.createdAt,
-      notification.recipientId,
-      categoryByType[notification.type]
+      notification.createdAt
     ]
   };
 }
@@ -51,7 +50,7 @@ export function notificationIdsFromStatements(statements: readonly ReturnType<ty
 }
 
 export async function mentionNotificationStatements(
-  client: Client,
+  _client: Client,
   content: string,
   actorId: string,
   entityId: string,
@@ -62,21 +61,37 @@ export async function mentionNotificationStatements(
   ));
   if (!usernames.length) return [];
 
-  const users = await client.execute({
-    sql: `SELECT id FROM users
-      WHERE lower(username) IN (${usernames.map(() => '?').join(', ')})
-        AND id <> ?
-        AND NOT EXISTS (
-          SELECT 1 FROM blocked_users
-          WHERE (blocker_id = id AND blocked_id = ?)
-            OR (blocker_id = ? AND blocked_id = id)
-        )`,
-    args: [...usernames, actorId, actorId, actorId]
-  });
+  const shards = getConfiguredTursoShards();
+  const userResults = await Promise.all(shards.map((shard) => shard.client.execute({
+    sql: `SELECT id FROM users WHERE lower(username) IN (${usernames.map(() => '?').join(', ')})`,
+    args: usernames
+  })));
+  const recipientIds = Array.from(new Set(userResults.flatMap((result) =>
+    result.rows.map((row) => String(row.id)).filter((id) => id !== actorId)
+  )));
+  const userShards = await findUserShards([actorId, ...recipientIds]);
+  const actorShard = userShards.get(actorId);
+  if (!actorShard) return [];
 
-  return users.rows.map((row) => notificationStatement({
+  const visibleRecipients = await Promise.all(recipientIds.map(async (recipientId) => {
+    const recipientShard = userShards.get(recipientId);
+    if (!recipientShard) return null;
+    const [actorBlock, recipientBlock] = await Promise.all([
+      actorShard.client.execute({
+        sql: 'SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?',
+        args: [actorId, recipientId]
+      }),
+      recipientShard.client.execute({
+        sql: 'SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?',
+        args: [recipientId, actorId]
+      })
+    ]);
+    return actorBlock.rows[0] || recipientBlock.rows[0] ? null : recipientId;
+  }));
+
+  return visibleRecipients.filter((id): id is string => Boolean(id)).map((recipientId) => notificationStatement({
     id: `mention_${crypto.randomUUID()}`,
-    recipientId: String(row.id),
+    recipientId,
     actorId,
     type: 'mention',
     entityId,

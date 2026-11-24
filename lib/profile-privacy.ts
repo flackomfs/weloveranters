@@ -1,17 +1,22 @@
 import type { Client } from '@libsql/client';
+import { findUserShard } from '@/lib/turso';
 
-export async function canViewUserContent(client: Client, userId: string, viewerId: string) {
-  const result = await client.execute({
-    sql: `SELECT CASE
-        WHEN COALESCE(u.private_profile, 0) = 0 OR u.id = ?
-          OR EXISTS (
-            SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = u.id
-          )
-        THEN 1 ELSE 0
-      END AS canView
-      FROM users u
-      WHERE u.id = ?`,
-    args: [viewerId, viewerId, userId]
+export async function canViewUserContent(_client: Client, userId: string, viewerId: string) {
+  const ownerShard = await findUserShard(userId);
+  if (!ownerShard) return false;
+  const profile = await ownerShard.client.execute({
+    sql: 'SELECT private_profile FROM users WHERE id = ?',
+    args: [userId]
   });
-  return Number(result.rows[0]?.canView || 0) > 0;
+  if (!profile.rows[0]) return false;
+  if (Number(profile.rows[0].private_profile || 0) === 0 || userId === viewerId) return true;
+  if (!viewerId) return false;
+
+  const viewerShard = await findUserShard(viewerId);
+  if (!viewerShard) return false;
+  const following = await viewerShard.client.execute({
+    sql: 'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?',
+    args: [viewerId, userId]
+  });
+  return Boolean(following.rows[0]);
 }

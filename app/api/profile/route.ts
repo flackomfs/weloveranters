@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/auth';
+import { getAppUserClient, getAuthenticatedUser } from '@/lib/auth';
 import { isAdminUid } from '@/lib/admin';
-import { initTursoSchema, tursoClient } from '@/lib/turso';
+import { findUserShard, getConfiguredTursoShards, initTursoSchema, tursoClient, updateAccountShardIdentity } from '@/lib/turso';
 import { getAvailableDisplayName } from '@/lib/profile-identity';
+import type { Client } from '@libsql/client';
 
 type SocialLinks = {
   website?: string;
@@ -43,36 +44,44 @@ function profileFromRow(row: Record<string, unknown>) {
 async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewerId: string | null) {
   if (!tursoClient) return profile;
 
-  const [counts, verification, isFollowing, followRequest, blockState] = await Promise.all([
-    tursoClient.execute({
+  const shards = getConfiguredTursoShards();
+  const ownerShard = await findUserShard(profile.id);
+  if (!ownerShard) return profile;
+  const viewerShard = viewerId ? await findUserShard(viewerId) : null;
+  const [countResults, verification, isFollowing, followRequest, viewerBlock, profileBlock] = await Promise.all([
+    Promise.all(shards.map((shard) => shard.client.execute({
       sql: `SELECT
         (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followers,
         (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following`,
       args: [profile.id, profile.id]
-    }),
-    tursoClient.execute({
+    }))),
+    ownerShard.client.execute({
       sql: `SELECT requested_badge FROM user_verification_requests
         WHERE user_id = ? AND status = 'approved'`,
       args: [profile.id]
     }),
     viewerId && viewerId !== profile.id
-      ? tursoClient.execute({
+      ? viewerShard?.client.execute({
         sql: 'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?',
         args: [viewerId, profile.id]
       })
       : Promise.resolve(null),
     viewerId && viewerId !== profile.id
-      ? tursoClient.execute({
+      ? ownerShard.client.execute({
         sql: 'SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?',
         args: [viewerId, profile.id]
       })
       : Promise.resolve(null),
     viewerId && viewerId !== profile.id
-      ? tursoClient.execute({
-        sql: `SELECT
-          EXISTS (SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?) AS viewerBlocked,
-          EXISTS (SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?) AS blockedViewer`,
-        args: [viewerId, profile.id, profile.id, viewerId]
+      ? viewerShard?.client.execute({
+        sql: 'SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?',
+        args: [viewerId, profile.id]
+      })
+      : Promise.resolve(null),
+    viewerId && viewerId !== profile.id
+      ? ownerShard.client.execute({
+        sql: 'SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?',
+        args: [profile.id, viewerId]
       })
       : Promise.resolve(null)
   ]);
@@ -80,17 +89,21 @@ async function addFollowState(profile: ReturnType<typeof profileFromRow>, viewer
   const requestedBadge = verification.rows[0]?.requested_badge;
   const viewerFollows = Boolean(isFollowing?.rows[0]);
   const canViewProfile = !profile.isPrivate || profile.id === viewerId || viewerFollows;
+  const counts = countResults.reduce((total, result) => ({
+    followers: total.followers + Number(result.rows[0]?.followers || 0),
+    following: total.following + Number(result.rows[0]?.following || 0)
+  }), { followers: 0, following: 0 });
 
   const enrichedProfile = {
     ...profile,
-    followers: profile.followersOverride ?? Number(counts.rows[0]?.followers || 0),
-    following: profile.followingOverride ?? Number(counts.rows[0]?.following || 0),
+    followers: profile.followersOverride ?? counts.followers,
+    following: profile.followingOverride ?? counts.following,
     isFollowing: viewerFollows,
     isOwner: profile.id === viewerId,
     hasRequestedFollow: Boolean(followRequest?.rows[0]),
     canViewProfile,
-    viewerBlocked: Number(blockState?.rows[0]?.viewerBlocked || 0) > 0,
-    blockedViewer: Number(blockState?.rows[0]?.blockedViewer || 0) > 0,
+    viewerBlocked: Boolean(viewerBlock?.rows[0]),
+    blockedViewer: Boolean(profileBlock?.rows[0]),
     canManageStats: Boolean(viewerId && isAdminUid(viewerId)),
     verificationBadge: isAdmin ? 'moderator' : requestedBadge === 'man' || requestedBadge === 'woman' ? requestedBadge : null
   };
@@ -119,21 +132,21 @@ function makeDefaultUsername(email: string | undefined, uid: string) {
   return `${base}_${suffix}`;
 }
 
-async function ensureProfile(uid: string, email?: string, displayName?: string, avatarUrl?: string, bannerUrl?: string) {
-  if (!tursoClient) throw new Error('Profile storage is unavailable. Configure the Turso database environment variables.');
+async function ensureProfile(client: Client, uid: string, email?: string, displayName?: string, avatarUrl?: string, bannerUrl?: string) {
 
-  const existing = await tursoClient.execute({
+  const existing = await client.execute({
     sql: 'SELECT id, username, display_name, avatar_url, banner_url, email FROM users WHERE id = ?',
     args: [uid]
   });
   const current = existing.rows[0];
   const emailName = email?.split('@')[0] || 'user';
   const defaultUsername = makeDefaultUsername(email, uid);
-  const defaultDisplayName = await getAvailableDisplayName(tursoClient, displayName || emailName, uid);
+  const allClients = getConfiguredTursoShards().map((shard) => shard.client);
+  const defaultDisplayName = await getAvailableDisplayName(allClients, displayName || emailName, uid);
   const safeEmail = email || null;
 
   if (current) {
-    await tursoClient.execute({
+    await client.execute({
       sql: `UPDATE users SET
         username = CASE WHEN username IS NULL OR username = '' THEN ? ELSE username END,
         display_name = CASE WHEN display_name IS NULL OR trim(display_name) = '' THEN ? ELSE display_name END,
@@ -145,7 +158,7 @@ async function ensureProfile(uid: string, email?: string, displayName?: string, 
     });
   } else {
     const emailOwner = email
-      ? await tursoClient.execute({
+      ? await client.execute({
           sql: 'SELECT id FROM users WHERE email = ? LIMIT 1',
           args: [email]
         })
@@ -153,20 +166,27 @@ async function ensureProfile(uid: string, email?: string, displayName?: string, 
 
     const insertEmail = emailOwner?.rows.length ? null : safeEmail;
 
-    await tursoClient.execute({
+    await client.execute({
       sql: `INSERT INTO users (id, email, display_name, username, avatar_url, banner_url, social_links)
         VALUES (?, ?, ?, ?, ?, ?, '{}')`,
       args: [uid, insertEmail, defaultDisplayName, defaultUsername, avatarUrl || '', bannerUrl || '']
     });
   }
 
-  const profile = await tursoClient.execute({
+  const profile = await client.execute({
     sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
       followers_override, following_override, private_profile
       FROM users WHERE id = ?`,
     args: [uid]
   });
 
+  if (profile.rows[0]) {
+    await updateAccountShardIdentity(
+      uid,
+      String(profile.rows[0].username || ''),
+      String(profile.rows[0].display_name || '')
+    );
+  }
   return profile.rows[0] ? profileFromRow(profile.rows[0]) : null;
 }
 
@@ -226,23 +246,25 @@ export async function GET(request: Request) {
     const username = new URL(request.url).searchParams.get('username');
 
     if (username) {
-      const result = await tursoClient.execute({
+      const shards = getConfiguredTursoShards();
+      const result = await Promise.all(shards.map((shard) => shard.client.execute({
         sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
             followers_override, following_override, private_profile
-          FROM users WHERE username = ?`,
+          FROM users WHERE lower(username) = ?`,
         args: [username.toLowerCase()]
-      });
+      })));
+      const profileRow = result.flatMap((entry) => entry.rows)[0];
+      if (!profileRow) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
 
-      if (!result.rows[0]) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
-
-      const viewer = await getAuthenticatedUser().catch(() => null);
-      return NextResponse.json({ profile: await addFollowState(profileFromRow(result.rows[0]), viewer?.uid || null) });
+      const viewer = await getAuthenticatedUser();
+      return NextResponse.json({ profile: await addFollowState(profileFromRow(profileRow), viewer?.uid || null) });
     }
 
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to view your profile.' }, { status: 401 });
 
-    const profile = await ensureProfile(user.uid, user.email, user.name, user.picture);
+    const client = getAppUserClient(user);
+    const profile = await ensureProfile(client, user.uid, user.email, user.name, user.picture);
     return NextResponse.json({ profile: profile ? await addFollowState(profile, user.uid) : null });
   } catch (error) {
     console.error('Unable to load profile:', error instanceof Error ? error.message : 'Unknown error');
@@ -262,18 +284,19 @@ export async function PATCH(request: Request) {
     await initTursoSchema();
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to update your profile privacy.' }, { status: 401 });
+    const client = getAppUserClient(user);
 
     const body = await request.json();
     if (typeof body.isPrivate !== 'boolean') {
       return NextResponse.json({ error: 'Choose whether your profile should be public or private.' }, { status: 400 });
     }
 
-    await ensureProfile(user.uid, user.email, user.name, user.picture);
-    await tursoClient.execute({
+    await ensureProfile(client, user.uid, user.email, user.name, user.picture);
+    await client.execute({
       sql: 'UPDATE users SET private_profile = ? WHERE id = ?',
       args: [body.isPrivate ? 1 : 0, user.uid]
     });
-    const result = await tursoClient.execute({
+    const result = await client.execute({
       sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
           followers_override, following_override, private_profile
         FROM users WHERE id = ?`,
@@ -295,6 +318,7 @@ export async function PUT(request: Request) {
     await initTursoSchema();
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to update your profile.' }, { status: 401 });
+    const client = getAppUserClient(user);
 
     const body = await request.json();
     const name = typeof body.name === 'string' ? body.name.normalize('NFKC').trim() : '';
@@ -322,15 +346,32 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Bio must be 280 characters or fewer.' }, { status: 400 });
     }
 
-    await ensureProfile(user.uid, user.email, user.name, user.picture);
+    await ensureProfile(client, user.uid, user.email, user.name, user.picture);
 
-    await tursoClient.execute({
+    const shards = getConfiguredTursoShards();
+    const usernameExists = await Promise.all(shards.map((shard) => shard.client.execute({
+      sql: 'SELECT id FROM users WHERE lower(username) = ? AND id <> ? LIMIT 1',
+      args: [username, user.uid]
+    })));
+    if (usernameExists.some((result) => result.rows.length)) {
+      return NextResponse.json({ error: 'Username already taken.' }, { status: 409 });
+    }
+    const displayNameExists = await Promise.all(shards.map((shard) => shard.client.execute({
+      sql: 'SELECT id FROM users WHERE lower(trim(display_name)) = lower(?) AND id <> ? LIMIT 1',
+      args: [name, user.uid]
+    })));
+    if (displayNameExists.some((result) => result.rows.length)) {
+      return NextResponse.json({ error: 'Display name already taken.' }, { status: 409 });
+    }
+
+    await updateAccountShardIdentity(user.uid, username, name);
+    await client.execute({
       sql: `UPDATE users SET display_name = ?, username = ?, avatar_url = ?, banner_url = ?, bio = ?, social_links = ?
         WHERE id = ?`,
       args: [name, username, avatarUrl, bannerUrl, bio, JSON.stringify(socialLinks), user.uid]
     });
 
-    const result = await tursoClient.execute({
+    const result = await client.execute({
       sql: `SELECT id, display_name, username, avatar_url, banner_url, bio, social_links, created_at,
           followers_override, following_override, private_profile
         FROM users WHERE id = ?`,
@@ -341,10 +382,10 @@ export async function PUT(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
 
-    if (message.includes('users.username') || message.includes('users_username_ci_unique')) {
+    if (message.includes('users.username') || message.includes('users_username_ci_unique') || message.includes('account_shards_username_key_unique')) {
       return NextResponse.json({ error: 'Username already taken.' }, { status: 409 });
     }
-    if (message.includes('users_display_name_ci_unique')) {
+    if (message.includes('users_display_name_ci_unique') || message.includes('account_shards_display_name_key_unique')) {
       return NextResponse.json({ error: 'Display name already taken.' }, { status: 409 });
     }
 

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/auth';
+import { getAppUserClient, getAuthenticatedUser } from '@/lib/auth';
 import { notificationStatement } from '@/lib/notifications';
-import { initTursoSchema, tursoClient } from '@/lib/turso';
+import { findUserShard, initTursoSchema, tursoClient } from '@/lib/turso';
 import { sendPushNotifications } from '@/lib/web-push';
 
 export async function POST(request: Request) {
@@ -11,41 +11,52 @@ export async function POST(request: Request) {
     await initTursoSchema();
     const user = await getAuthenticatedUser();
     if (!user) return NextResponse.json({ error: 'Sign in to follow users.' }, { status: 401 });
+    const actorClient = getAppUserClient(user);
     const body = await request.json();
     const targetId = typeof body.targetId === 'string' ? body.targetId : '';
     if (!targetId || targetId === user.uid) return NextResponse.json({ error: 'Invalid profile to follow.' }, { status: 400 });
 
-    const target = await tursoClient.execute({
+    const targetShard = await findUserShard(targetId);
+    if (!targetShard) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
+    const targetClient = targetShard.client;
+    const target = await targetClient.execute({
       sql: 'SELECT id, private_profile FROM users WHERE id = ?',
       args: [targetId]
     });
     if (!target.rows[0]) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
-    const block = await tursoClient.execute({
-      sql: `SELECT 1 FROM blocked_users
-        WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)`,
-      args: [user.uid, targetId, targetId, user.uid]
-    });
-    if (block.rows[0]) return NextResponse.json({ error: 'You cannot follow a user while either account has blocked the other.' }, { status: 403 });
+    const [actorBlock, targetBlock] = await Promise.all([
+      actorClient.execute({
+        sql: 'SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?',
+        args: [user.uid, targetId]
+      }),
+      targetClient.execute({
+        sql: 'SELECT 1 FROM blocked_users WHERE blocker_id = ? AND blocked_id = ?',
+        args: [targetId, user.uid]
+      })
+    ]);
+    if (actorBlock.rows[0] || targetBlock.rows[0]) {
+      return NextResponse.json({ error: 'You cannot follow a user while either account has blocked the other.' }, { status: 403 });
+    }
 
-    const existing = await tursoClient.execute({
+    const existing = await actorClient.execute({
       sql: 'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?',
       args: [user.uid, targetId]
     });
     const isFollowing = Boolean(existing.rows[0]);
 
     if (!isFollowing && Number(target.rows[0].private_profile) > 0) {
-      const request = await tursoClient.execute({
+      const followRequest = await targetClient.execute({
         sql: 'SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?',
         args: [user.uid, targetId]
       });
-      if (request.rows[0]) {
-        await tursoClient.execute({
+      if (followRequest.rows[0]) {
+        await targetClient.execute({
           sql: 'DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?',
           args: [user.uid, targetId]
         });
         return NextResponse.json({ following: false, requested: false });
       }
-      await tursoClient.execute({
+      await targetClient.execute({
         sql: `INSERT INTO follow_requests (requester_id, target_id, created_at)
           VALUES (?, ?, ?) ON CONFLICT(requester_id, target_id) DO NOTHING`,
         args: [user.uid, targetId, new Date().toISOString()]
@@ -79,27 +90,31 @@ export async function POST(request: Request) {
     });
 
     if (isFollowing) {
-      await tursoClient.batch([
+      await actorClient.batch([
         { sql: 'DELETE FROM follows WHERE follower_id = ? AND following_id = ?', args: [user.uid, targetId] },
-        { sql: 'DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?', args: [user.uid, targetId] },
-        updateFollowerCount,
-        updateFollowingCount,
         notification
       ], 'write');
+      await targetClient.batch([
+        { sql: 'DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?', args: [user.uid, targetId] },
+        updateFollowerCount
+      ], 'write');
+      await actorClient.execute(updateFollowingCount);
     } else {
-      await tursoClient.batch([
+      await actorClient.batch([
         {
           sql: 'INSERT INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)',
           args: [user.uid, targetId, new Date().toISOString()]
         },
-        { sql: 'DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?', args: [user.uid, targetId] },
-        updateFollowerCount,
-        updateFollowingCount,
         notification
       ], 'write');
+      await targetClient.batch([
+        { sql: 'DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?', args: [user.uid, targetId] },
+        updateFollowerCount
+      ], 'write');
+      await actorClient.execute(updateFollowingCount);
     }
 
-    await sendPushNotifications(tursoClient, [notificationId]);
+    await sendPushNotifications(actorClient, [notificationId]);
     return NextResponse.json({ following: !isFollowing });
   } catch (error) {
     console.error('Unable to update follow:', error instanceof Error ? error.message : 'Unknown error');
